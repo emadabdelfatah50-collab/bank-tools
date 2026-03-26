@@ -1,0 +1,1888 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>بنك الوسائل التعليمية</title>
+  <meta name="description" content="بنك الوسائل التعليمية - المرجع الرقمي للوسائل التعليمية" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyC7-REyPo1mfvNT_0nhVg4LMkzl-e3NAxM",
+      authDomain: "bank-tools-bb29b.firebaseapp.com",
+      projectId: "bank-tools-bb29b",
+      storageBucket: "bank-tools-bb29b.firebasestorage.app",
+      messagingSenderId: "377303084142",
+      appId: "1:377303084142:web:01d56d23caa3baae97ca7f"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db  = getFirestore(app);
+
+    window.storage = {
+      get: async function(key) {
+        try {
+          const snap = await getDoc(doc(db, "appdata", key.replace(/:/g,"_")));
+          return snap.exists() ? { value: snap.data().value } : null;
+        } catch(e) { console.error("FB get error",e); return null; }
+      },
+      set: async function(key, value) {
+        try {
+          await setDoc(doc(db, "appdata", key.replace(/:/g,"_")), { value });
+          return { key, value };
+        } catch(e) { console.error("FB set error",e); return null; }
+      },
+      delete: async function(key) {
+        try {
+          await deleteDoc(doc(db, "appdata", key.replace(/:/g,"_")));
+          return { key, deleted: true };
+        } catch(e) { return null; }
+      },
+      list: async function(prefix) {
+        try {
+          const snap = await getDocs(collection(db, "appdata"));
+          const keys = snap.docs.map(d=>d.id.replace(/_/g,":")).filter(k=>!prefix||k.startsWith(prefix));
+          return { keys };
+        } catch(e) { return { keys: [] }; }
+      }
+    };
+    window.dispatchEvent(new Event("firebaseReady"));
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { direction: rtl; background: #f8fafc; }
+    #root { min-height: 100vh; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>window._fbShimDone=true;</script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+
+/* ─────────────────────────── DATA ─────────────────────────── */
+const INIT_USERS = [
+  { id: 1, username: "admin",    password: "1234", role: "admin",   name: "أ. عماد عبد الفتاح", avatar: "عف", dept: "الإدارة" },
+  { id: 2, username: "teacher1", password: "1234", role: "teacher", name: "أ. نورة العتيبي",    avatar: "نع", dept: "قسم التوحد" },
+  { id: 3, username: "teacher2", password: "1234", role: "teacher", name: "أ. ريم الشمري",      avatar: "رش", dept: "التدخل المبكر" },
+  { id: 4, username: "parent1",  password: "1234", role: "parent",  name: "أم عبدالله",         avatar: "عب", dept: "ولي أمر" },
+];
+
+const DEPTS = [
+  { id: "autism",  name: "قسم التوحد",    icon: "🧩", color: "#6366f1", light: "#eef2ff" },
+  { id: "early",   name: "التدخل المبكر", icon: "🌱", color: "#10b981", light: "#ecfdf5" },
+  { id: "tracks",  name: "قسم مسارات",    icon: "🛤️", color: "#f59e0b", light: "#fffbeb" },
+  { id: "wafa",    name: "مدرسة الوفاء",  icon: "🏫", color: "#ef4444", light: "#fef2f2" },
+];
+
+const STATUS = {
+  available: { label: "متاحة",          color: "#10b981", bg: "#ecfdf5", icon: "🟢" },
+  borrowed:  { label: "مستعارة",        color: "#f59e0b", bg: "#fffbeb", icon: "🟡" },
+  inuse:     { label: "قيد الاستخدام",  color: "#3b82f6", bg: "#eff6ff", icon: "🔵" },
+  repair:    { label: "تحتاج صيانة",    color: "#ef4444", bg: "#fef2f2", icon: "🔴" },
+};
+
+const INIT_TOOLS = [
+  { id:1, name:"بطاقات الانتباه", dept:"autism",  status:"available", teacher:"أ. عماد عبدالفتاح", teacherId:1, desc:"مجموعة بطاقات مصوّرة لتنمية مهارات التركيز والانتباه المشترك لدى أطفال طيف التوحد", goal:"تنمية الانتباه",  tags:["تركيز","انتباه","بصري"],  rating:4.5, reviews:12, usageCount:28, img:"🎯", history:[{date:"2025-03-01",user:"أ. ريم الشمري",action:"استلام",note:""},{date:"2025-03-05",user:"أ. ريم الشمري",action:"تسليم",note:"ممتازة"}] },
+  { id:2, name:"لعبة الألوان",    dept:"early",   status:"inuse",     teacher:"أ. عماد عبدالفتاح", teacherId:1, desc:"ألعاب تفاعلية لتعليم الألوان الأساسية وتطوير الإدراك البصري",                          goal:"مهارات لغوية",    tags:["لغة","ألوان","إبداع"],    rating:4.8, reviews:9,  usageCount:19, img:"🎨", history:[] },
+  { id:3, name:"ألواح الأرقام",   dept:"tracks",  status:"available", teacher:"أ. عماد عبد الفتاح", teacherId:1, desc:"ألواح خشبية مرقمة تساعد في تعليم الأرقام والعمليات الحسابية البسيطة",                  goal:"مهارات رياضية",   tags:["رياضيات","أرقام","حركي"],rating:4.2, reviews:7,  usageCount:15, img:"🔢", history:[] },
+  { id:4, name:"حروف الهجاء",    dept:"wafa",    status:"borrowed",  teacher:"أ. عماد عبدالفتاح", teacherId:1, desc:"بطاقات ملونة لتعليم الحروف العربية بأسلوب ممتع وتفاعلي",                              goal:"مهارات لغوية",    tags:["لغة","حروف","قراءة"],    rating:4.7, reviews:14, usageCount:35, img:"📖", history:[] },
+  { id:5, name:"مجسّمات الحواس", dept:"autism",  status:"available", teacher:"أ. عماد عبد الفتاح", teacherId:1, desc:"مجموعة مجسّمات لتحفيز الحواس الخمس وتطوير التكامل الحسي",                             goal:"تكامل حسي",       tags:["حسي","لمس","سلوك"],      rating:4.9, reviews:20, usageCount:41, img:"🖐️", history:[] },
+  { id:6, name:"كتاب المشاعر",   dept:"early",   status:"repair",    teacher:"أ. عماد عبدالفتاح", teacherId:1, desc:"كتاب مصوّر تفاعلي لتعريف الأطفال بالمشاعر وكيفية التعبير عنها",                       goal:"مهارات اجتماعية", tags:["سلوك","مشاعر","اجتماعي"],rating:4.0, reviews:5,  usageCount:10, img:"😊", history:[] },
+];
+
+const INIT_TAGS = ["الكل","تركيز","لغة","سلوك","رياضيات","حسي","حركي","إبداع","اجتماعي"];
+
+/* ─── HELPERS ─── */
+const Stars = ({ val }) => (
+  <span style={{ color:"#f59e0b", fontSize:"0.75rem" }}>
+    {"★".repeat(Math.round(val))}{"☆".repeat(5-Math.round(val))}
+    <span style={{ color:"#9ca3af", marginRight:"4px", fontSize:"0.7rem" }}>{val}</span>
+  </span>
+);
+const Badge = ({ status }) => {
+  const s = STATUS[status];
+  return <span style={{ background:s.bg, color:s.color, borderRadius:"100px", padding:"2px 10px", fontSize:"0.7rem", fontWeight:700, border:`1px solid ${s.color}33` }}>{s.icon} {s.label}</span>;
+};
+const Av = ({ initials, photo, color="#6366f1", size=36 }) => (
+  <div style={{ width:size, height:size, borderRadius:"50%", background:photo?"transparent":color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:size*0.35, fontWeight:700, flexShrink:0, overflow:"hidden", border:photo?"2px solid #e5e7eb":"none" }}>
+    {photo ? <img src={photo} alt="avatar" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : initials}
+  </div>
+);
+
+/* ── Confirm Dialog ── */
+function ConfirmDialog({ message, onConfirm, onCancel }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:"1.5rem" }}>
+      <div style={{ background:"#fff", borderRadius:"20px", padding:"1.5rem", maxWidth:320, width:"100%", textAlign:"center", boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontSize:"2.5rem", marginBottom:"0.8rem" }}>⚠️</div>
+        <div style={{ fontSize:"0.95rem", fontWeight:700, color:"#1f2937", marginBottom:"1.2rem", lineHeight:1.5 }}>{message}</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.7rem" }}>
+          <button onClick={onCancel} style={{ background:"#f3f4f6", border:"none", borderRadius:"12px", padding:"0.75rem", color:"#6b7280", fontWeight:700, fontSize:"0.88rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>إلغاء</button>
+          <button onClick={onConfirm} style={{ background:"linear-gradient(135deg,#ef4444,#dc2626)", border:"none", borderRadius:"12px", padding:"0.75rem", color:"#fff", fontWeight:700, fontSize:"0.88rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>تأكيد</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const darkInput = { width:"100%", background:"rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.15)", borderRadius:"12px", padding:"0.75rem 1rem", color:"#fff", fontSize:"0.88rem", outline:"none", fontFamily:"Tajawal,sans-serif" };
+const lightInput = { width:"100%", background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"0.75rem 1rem", color:"#1f2937", fontSize:"0.88rem", outline:"none", fontFamily:"Tajawal,sans-serif" };
+const dLabel = { color:"rgba(255,255,255,0.6)", fontSize:"0.76rem", display:"block", marginBottom:"5px" };
+const lLabel = { color:"#6b7280", fontSize:"0.76rem", display:"block", marginBottom:"5px" };
+
+/* ═══════════════════ AUTH ═══════════════════ */
+const SECRET_QUESTIONS = [
+  "ما اسم مدرستك الابتدائية؟",
+  "ما اسم أول معلم/معلمة أحببته؟",
+  "ما اسم حيوانك الأليف الأول؟",
+  "ما اسم مدينة ميلادك؟",
+  "ما هو طبقك المفضل؟",
+  "ما اسم أفضل صديق في طفولتك؟",
+];
+
+function AuthScreen({ users, setUsers, onLogin }) {
+  // login
+  const [mode, setMode]   = useState("login");
+  const [lu,   setLu]     = useState(""); const [lp, setLp] = useState(""); const [lErr, setLErr] = useState("");
+  // register
+  const [rName,setRName]  = useState(""); const [rUser,setRUser] = useState("");
+  const [rPass,setRPass]  = useState(""); const [rPass2,setRPass2] = useState("");
+  const [rRole,setRRole]  = useState("teacher"); const [rDept,setRDept] = useState("autism");
+  const [rQ,   setRQ]     = useState(SECRET_QUESTIONS[0]); const [rA, setRa] = useState("");
+  const [rCode,setRCode]  = useState("");
+  const [rErr, setRErr]   = useState(""); const [rDone,setRDone] = useState(false);
+  const ROLE_CODES = { teacher: "2025", admin: "2026" };
+  // forgot password
+  const [fStep,  setFStep]  = useState(1); // 1=enter username, 2=answer question, 3=new password
+  const [fUser,  setFUser]  = useState("");
+  const [fFound, setFFound] = useState(null);
+  const [fAns,   setFAns]   = useState("");
+  const [fNew,   setFNew]   = useState(""); const [fNew2, setFNew2] = useState("");
+  const [fErr,   setFErr]   = useState(""); const [fDone, setFDone] = useState(false);
+
+  const doLogin = () => {
+    const u = users.find(x => x.username===lu && x.password===lp);
+    if (u) onLogin(u); else setLErr("اسم المستخدم أو كلمة المرور غير صحيحة");
+  };
+  const doRegister = () => {
+    if (!rName.trim()||!rUser.trim()||!rPass.trim()) return setRErr("يرجى ملء جميع الحقول");
+    if (rPass!==rPass2) return setRErr("كلمتا المرور غير متطابقتين");
+    if (rPass.length<4) return setRErr("كلمة المرور ٤ أحرف على الأقل");
+    if (!rA.trim()) return setRErr("يرجى كتابة إجابة السؤال السري");
+    if ((rRole==="teacher"||rRole==="admin") && rCode.trim()!==ROLE_CODES[rRole])
+      return setRErr("كود التسجيل غير صحيح ❌");
+    if (users.find(u=>u.username===rUser.trim())) return setRErr("اسم المستخدم مستخدم بالفعل");
+    const deptLabel = rRole==="parent" ? "ولي أمر" : DEPTS.find(d=>d.id===rDept)?.name;
+    const initials  = rName.trim().split(" ").map(w=>w[0]).join("").slice(0,2);
+    const newU = { id:Date.now(), username:rUser.trim(), password:rPass, role:rRole, name:rName.trim(), avatar:initials, dept:deptLabel, secretQ:rQ, secretA:rA.trim().toLowerCase() };
+    const updatedUsers = [...users, newU];
+    setUsers(updatedUsers);
+    if (window.storage && window.storage.set) {
+      window.storage.set("app:users", JSON.stringify(updatedUsers)).catch(()=>{});
+    }
+    setRDone(true);
+    setTimeout(()=>onLogin(newU), 1800);
+  };
+
+  // forgot: step 1
+  const fCheckUser = () => {
+    setFErr("");
+    const u = users.find(x=>x.username===fUser.trim());
+    if (!u) return setFErr("اسم المستخدم غير موجود");
+    if (!u.secretQ) return setFErr("هذا الحساب لا يمتلك سؤالاً سرياً — تواصل مع الأدمن");
+    setFFound(u); setFStep(2);
+  };
+  // forgot: step 2
+  const fCheckAnswer = () => {
+    setFErr("");
+    if (fAns.trim().toLowerCase() !== fFound.secretA) return setFErr("الإجابة غير صحيحة، حاول مرة أخرى");
+    setFStep(3);
+  };
+  // forgot: step 3
+  const fResetPass = () => {
+    setFErr("");
+    if (fNew.length<4) return setFErr("كلمة المرور ٤ أحرف على الأقل");
+    if (fNew!==fNew2) return setFErr("كلمتا المرور غير متطابقتين");
+    const updatedUsers = users.map(u=>u.id===fFound.id?{...u,password:fNew}:u);
+    setUsers(updatedUsers);
+    if (window.storage && window.storage.set) {
+      window.storage.set("app:users", JSON.stringify(updatedUsers)).catch(()=>{});
+    }
+    setFDone(true);
+    setTimeout(()=>{ setMode("login"); setFStep(1); setFUser(""); setFFound(null); setFAns(""); setFNew(""); setFNew2(""); setFDone(false); }, 2000);
+  };
+
+  const switchMode = (m) => { setMode(m); setLErr(""); setRErr(""); setRDone(false); setFStep(1); setFErr(""); setFDone(false); };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"linear-gradient(145deg,#0f172a 0%,#1e3a5f 55%,#0f4c3a 100%)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"1.5rem" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;font-family:'Tajawal',sans-serif;}
+        body{direction:rtl;}
+        input::placeholder,textarea::placeholder{color:rgba(255,255,255,0.3);}
+        select option{background:#1e3a5f;color:#fff;}
+        @keyframes pop{0%{transform:scale(0)}70%{transform:scale(1.2)}100%{transform:scale(1)}}
+        @keyframes fill{from{width:0}to{width:100%}}
+        @keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+      `}</style>
+
+      <div style={{ textAlign:"center", marginBottom:"1.6rem" }}>
+        <div style={{ fontSize:"3.5rem", marginBottom:"0.3rem" }}>📚</div>
+        <div style={{ color:"#fff", fontSize:"1.5rem", fontWeight:900 }}>بنك الوسائل التعليمية</div>
+        <div style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem", marginTop:"3px" }}>المرجع الرقمي للوسائل التعليمية</div>
+      </div>
+
+      {/* Tabs: only login & register (forgot is a sub-mode) */}
+      {mode!=="forgot" && (
+        <div style={{ display:"flex", background:"rgba(255,255,255,0.07)", borderRadius:"14px", padding:"4px", marginBottom:"1.1rem", width:"100%", maxWidth:390 }}>
+          {[{k:"login",label:"تسجيل الدخول"},{k:"register",label:"حساب جديد ✨"}].map(t=>(
+            <button key={t.k} onClick={()=>switchMode(t.k)}
+              style={{ flex:1, padding:"0.55rem", border:"none", borderRadius:"10px", cursor:"pointer", fontWeight:700, fontSize:"0.8rem", transition:"all 0.2s", background:mode===t.k?"#fff":"transparent", color:mode===t.k?"#0f172a":"rgba(255,255,255,0.45)", fontFamily:"Tajawal,sans-serif" }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ background:"rgba(255,255,255,0.05)", backdropFilter:"blur(20px)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"20px", padding:"1.5rem", width:"100%", maxWidth:390 }}>
+
+        {/* ── LOGIN ── */}
+        {mode==="login" && (
+          <>
+            {[{label:"اسم المستخدم",val:lu,set:v=>{setLu(v);setLErr("");},type:"text",ph:"أدخل اسم المستخدم"},{label:"كلمة المرور",val:lp,set:v=>{setLp(v);setLErr("");},type:"password",ph:"أدخل كلمة المرور"}].map(f=>(
+              <div key={f.label} style={{ marginBottom:"0.9rem" }}>
+                <label style={dLabel}>{f.label}</label>
+                <input type={f.type} value={f.val} onChange={e=>f.set(e.target.value)} placeholder={f.ph} style={darkInput} onKeyDown={e=>e.key==="Enter"&&doLogin()} />
+              </div>
+            ))}
+            {lErr && <p style={{ color:"#f87171", fontSize:"0.76rem", marginBottom:"0.8rem", textAlign:"center" }}>{lErr}</p>}
+            <button onClick={doLogin} style={{ width:"100%", background:"linear-gradient(135deg,#10b981,#059669)", border:"none", borderRadius:"12px", padding:"0.85rem", color:"#fff", fontSize:"0.95rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>تسجيل الدخول →</button>
+            <div style={{ display:"flex", justifyContent:"space-between", marginTop:"1rem" }}>
+              <span onClick={()=>switchMode("forgot")} style={{ color:"#fbbf24", fontSize:"0.73rem", cursor:"pointer", textDecoration:"underline" }}>🔑 نسيت كلمة المرور؟</span>
+              <span onClick={()=>switchMode("register")} style={{ color:"#60a5fa", fontSize:"0.73rem", cursor:"pointer", textDecoration:"underline" }}>حساب جديد</span>
+            </div>
+          </>
+        )}
+
+        {/* ── FORGOT PASSWORD ── */}
+        {mode==="forgot" && (
+          <>
+            <div style={{ display:"flex", alignItems:"center", gap:"0.6rem", marginBottom:"1.2rem" }}>
+              <button onClick={()=>switchMode("login")} style={{ background:"rgba(255,255,255,0.1)", border:"none", borderRadius:"8px", padding:"0.3rem 0.7rem", color:"#fff", cursor:"pointer", fontSize:"0.8rem", fontFamily:"Tajawal,sans-serif" }}>← رجوع</button>
+              <div style={{ color:"#fff", fontWeight:700, fontSize:"0.95rem" }}>🔑 استرجاع كلمة المرور</div>
+            </div>
+
+            {/* progress steps */}
+            <div style={{ display:"flex", gap:"0.4rem", marginBottom:"1.2rem" }}>
+              {[1,2,3].map(s=>(
+                <div key={s} style={{ flex:1, height:4, borderRadius:2, background:fStep>=s?"#10b981":"rgba(255,255,255,0.15)", transition:"background 0.3s" }}/>
+              ))}
+            </div>
+
+            {!fDone && fStep===1 && (
+              <>
+                <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.8rem", marginBottom:"1rem" }}>أدخل اسم المستخدم للبحث عن حسابك</div>
+                <div style={{ marginBottom:"0.9rem" }}>
+                  <label style={dLabel}>اسم المستخدم</label>
+                  <input value={fUser} onChange={e=>{setFUser(e.target.value);setFErr("");}} placeholder="اسم المستخدم" style={darkInput} onKeyDown={e=>e.key==="Enter"&&fCheckUser()}/>
+                </div>
+                {fErr && <p style={{ color:"#f87171", fontSize:"0.76rem", marginBottom:"0.8rem", textAlign:"center" }}>{fErr}</p>}
+                <button onClick={fCheckUser} style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#4f46e5)", border:"none", borderRadius:"12px", padding:"0.85rem", color:"#fff", fontSize:"0.9rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>التالي ←</button>
+              </>
+            )}
+
+            {!fDone && fStep===2 && fFound && (
+              <>
+                <div style={{ background:"rgba(255,255,255,0.07)", borderRadius:"12px", padding:"0.9rem", marginBottom:"1rem" }}>
+                  <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.72rem", marginBottom:"4px" }}>السؤال السري</div>
+                  <div style={{ color:"#fff", fontSize:"0.9rem", fontWeight:600 }}>❓ {fFound.secretQ}</div>
+                </div>
+                <div style={{ marginBottom:"0.9rem" }}>
+                  <label style={dLabel}>إجابتك</label>
+                  <input value={fAns} onChange={e=>{setFAns(e.target.value);setFErr("");}} placeholder="اكتب الإجابة" style={darkInput} onKeyDown={e=>e.key==="Enter"&&fCheckAnswer()}/>
+                </div>
+                {fErr && <p style={{ color:"#f87171", fontSize:"0.76rem", marginBottom:"0.8rem", textAlign:"center" }}>{fErr}</p>}
+                <button onClick={fCheckAnswer} style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#4f46e5)", border:"none", borderRadius:"12px", padding:"0.85rem", color:"#fff", fontSize:"0.9rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>التحقق ✓</button>
+              </>
+            )}
+
+            {!fDone && fStep===3 && (
+              <>
+                <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.8rem", marginBottom:"1rem" }}>✅ تم التحقق! أدخل كلمة مرور جديدة</div>
+                <div style={{ marginBottom:"0.8rem" }}>
+                  <label style={dLabel}>كلمة المرور الجديدة</label>
+                  <input type="password" value={fNew} onChange={e=>{setFNew(e.target.value);setFErr("");}} placeholder="٤ أحرف على الأقل" style={darkInput}/>
+                </div>
+                <div style={{ marginBottom:"0.9rem" }}>
+                  <label style={dLabel}>تأكيد كلمة المرور</label>
+                  <input type="password" value={fNew2} onChange={e=>{setFNew2(e.target.value);setFErr("");}} placeholder="أعد الكتابة" style={darkInput} onKeyDown={e=>e.key==="Enter"&&fResetPass()}/>
+                </div>
+                {fErr && <p style={{ color:"#f87171", fontSize:"0.76rem", marginBottom:"0.8rem", textAlign:"center" }}>{fErr}</p>}
+                <button onClick={fResetPass} style={{ width:"100%", background:"linear-gradient(135deg,#10b981,#059669)", border:"none", borderRadius:"12px", padding:"0.85rem", color:"#fff", fontSize:"0.9rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>حفظ كلمة المرور ✅</button>
+              </>
+            )}
+
+            {fDone && (
+              <div style={{ textAlign:"center", padding:"1.5rem 0" }}>
+                <div style={{ fontSize:"3.5rem", marginBottom:"0.8rem", animation:"pop 0.4s ease" }}>🎉</div>
+                <div style={{ color:"#fff", fontSize:"1.1rem", fontWeight:800 }}>تم تغيير كلمة المرور!</div>
+                <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.82rem", marginTop:"0.5rem" }}>جارٍ العودة لتسجيل الدخول...</div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── REGISTER ── */}
+        {mode==="register" && !rDone && (
+          <>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"0.5rem", marginBottom:"1.1rem" }}>
+              {[{k:"teacher",icon:"👨‍🏫",label:"معلم",desc:"حجز • إضافة"},{k:"parent",icon:"👨‍👩‍👧",label:"ولي أمر",desc:"استعارة • عرض"},{k:"admin",icon:"⚙️",label:"إدارة",desc:"كامل الصلاحيات"}].map(r=>(
+                <div key={r.k} onClick={()=>setRRole(r.k)}
+                  style={{ borderRadius:"12px", padding:"0.75rem 0.5rem", cursor:"pointer", textAlign:"center", border:`2px solid ${rRole===r.k?"#60a5fa":"rgba(255,255,255,0.1)"}`, background:rRole===r.k?"rgba(96,165,250,0.12)":"rgba(255,255,255,0.03)", transition:"all 0.2s" }}>
+                  <div style={{ fontSize:"1.3rem", marginBottom:"3px" }}>{r.icon}</div>
+                  <div style={{ color:rRole===r.k?"#fff":"rgba(255,255,255,0.7)", fontWeight:700, fontSize:"0.78rem" }}>{r.label}</div>
+                  <div style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.58rem", marginTop:"2px" }}>{r.desc}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginBottom:"0.8rem" }}><label style={dLabel}>الاسم الكامل</label><input value={rName} onChange={e=>{setRName(e.target.value);setRErr("");}} placeholder="مثال: أ. عماد عبدالفتاح" style={darkInput} /></div>
+            <div style={{ marginBottom:"0.8rem" }}><label style={dLabel}>اسم المستخدم</label><input value={rUser} onChange={e=>{setRUser(e.target.value.replace(/\s/g,""));setRErr("");}} placeholder="اكتب اسمك بالإنجليزية بدون مسافات" style={darkInput} /></div>
+            {rRole==="teacher" && (
+              <div style={{ marginBottom:"0.8rem" }}><label style={dLabel}>القسم</label>
+                <select value={rDept} onChange={e=>setRDept(e.target.value)} style={{...darkInput,cursor:"pointer"}}>
+                  {DEPTS.map(d=><option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.7rem", marginBottom:"0.8rem" }}>
+              <div><label style={dLabel}>كلمة المرور</label><input type="password" value={rPass} onChange={e=>{setRPass(e.target.value);setRErr("");}} placeholder="٤ أحرف+" style={darkInput} /></div>
+              <div><label style={dLabel}>تأكيد كلمة المرور</label><input type="password" value={rPass2} onChange={e=>{setRPass2(e.target.value);setRErr("");}} placeholder="أعد الكتابة" style={darkInput} /></div>
+            </div>
+            {/* Registration Code for teacher/admin */}
+            {(rRole==="teacher"||rRole==="admin") && (
+              <div style={{ background:"rgba(251,191,36,0.08)", border:"1px solid rgba(251,191,36,0.3)", borderRadius:"12px", padding:"0.9rem", marginBottom:"0.8rem" }}>
+                <div style={{ color:"#fbbf24", fontSize:"0.78rem", fontWeight:700, marginBottom:"0.5rem" }}>🔐 كود التسجيل ({rRole==="teacher"?"للمعلمين":"للإدارة"})</div>
+                <input value={rCode} onChange={e=>{setRCode(e.target.value);setRErr("");}} placeholder="أدخل الكود السري" style={darkInput}/>
+              </div>
+            )}
+            {/* Secret Question */}
+            <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"12px", padding:"0.9rem", marginBottom:"0.9rem" }}>
+              <div style={{ color:"#fbbf24", fontSize:"0.78rem", fontWeight:700, marginBottom:"0.6rem" }}>🔑 سؤال الأمان (لاسترجاع كلمة المرور)</div>
+              <div style={{ marginBottom:"0.7rem" }}>
+                <label style={dLabel}>اختر السؤال</label>
+                <select value={rQ} onChange={e=>setRQ(e.target.value)} style={{...darkInput,cursor:"pointer"}}>
+                  {SECRET_QUESTIONS.map(q=><option key={q} value={q}>{q}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={dLabel}>الإجابة السرية</label>
+                <input value={rA} onChange={e=>{setRa(e.target.value);setRErr("");}} placeholder="إجابتك السرية" style={darkInput}/>
+              </div>
+            </div>
+            {rErr && <p style={{ color:"#f87171", fontSize:"0.76rem", marginBottom:"0.8rem", textAlign:"center" }}>{rErr}</p>}
+            <button onClick={doRegister} style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#4f46e5)", border:"none", borderRadius:"12px", padding:"0.85rem", color:"#fff", fontSize:"0.95rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>إنشاء الحساب ✨</button>
+            <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.73rem", textAlign:"center", marginTop:"1rem" }}>لديك حساب؟ <span onClick={()=>switchMode("login")} style={{ color:"#34d399", cursor:"pointer", textDecoration:"underline" }}>سجّل دخولك</span></p>
+          </>
+        )}
+
+        {mode==="register" && rDone && (
+          <div style={{ textAlign:"center", padding:"1.5rem 0" }}>
+            <div style={{ fontSize:"3.5rem", marginBottom:"0.8rem", animation:"pop 0.4s ease" }}>🎉</div>
+            <div style={{ color:"#fff", fontSize:"1.1rem", fontWeight:800, marginBottom:"0.4rem" }}>تم إنشاء حسابك!</div>
+            <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.82rem", marginBottom:"1rem" }}>جارٍ تسجيل الدخول...</div>
+            <div style={{ height:4, background:"rgba(255,255,255,0.1)", borderRadius:"2px", overflow:"hidden" }}>
+              <div style={{ height:"100%", background:"#10b981", borderRadius:"2px", animation:"fill 1.8s linear forwards" }} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════ HOME ═══════════════════ */
+function HomeScreen({ user, tools, onNav }) {
+  const avail    = tools.filter(t=>t.status==="available").length;
+  const borrowed = tools.filter(t=>t.status==="borrowed").length;
+  const inuse    = tools.filter(t=>t.status==="inuse").length;
+  const repair   = tools.filter(t=>t.status==="repair").length;
+  const top   = [...tools].sort((a,b)=>b.usageCount-a.usageCount).slice(0,5);
+  const firstName = user.name.split(" ").find(w=>w!=="أ."&&w!=="أم")||user.name.split(" ")[0];
+  return (
+    <div style={{ paddingBottom:"5rem" }}>
+      <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a5f)", padding:"2rem 1.5rem 3rem", position:"relative", overflow:"hidden" }}>
+        <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse at 20% 80%,rgba(16,185,129,0.2),transparent 60%)" }} />
+        <div style={{ position:"absolute", right:"-20px", top:"-20px", fontSize:"8rem", opacity:0.05 }}>📚</div>
+        <div style={{ position:"relative" }}>
+          <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.8rem", marginBottom:"4px" }}>مرحباً، {firstName} 👋</div>
+          <div style={{ color:"#fff", fontSize:"1.5rem", fontWeight:900, lineHeight:1.2, marginBottom:"1.2rem" }}>بنك الوسائل<br/>التعليمية</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem" }}>
+            {[{val:avail,label:"متاحة",color:"#34d399"},{val:borrowed,label:"مستعارة",color:"#fbbf24"},{val:inuse,label:"قيد الاستخدام",color:"#60a5fa"},{val:repair,label:"تحتاج صيانة",color:"#f87171"}].map(s=>(
+              <div key={s.label} style={{ background:"rgba(255,255,255,0.1)", borderRadius:"12px", padding:"0.5rem 0.8rem", textAlign:"center" }}>
+                <div style={{ color:s.color, fontSize:"1.3rem", fontWeight:900 }}>{s.val}</div>
+                <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.65rem" }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div style={{ padding:"1.2rem 1.2rem 0", marginTop:"-1rem" }}>
+        <div style={{ background:"#fff", borderRadius:"18px", padding:"1.2rem", boxShadow:"0 4px 20px rgba(0,0,0,0.08)", marginBottom:"1.2rem" }}>
+          <div style={{ fontSize:"0.9rem", fontWeight:700, color:"#0f172a", marginBottom:"0.9rem" }}>الأقسام الأربعة</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.7rem" }}>
+            {DEPTS.map(d=>(
+              <div key={d.id} onClick={()=>onNav("tools",{dept:d.id})} style={{ background:d.light, borderRadius:"14px", padding:"1rem 0.8rem", cursor:"pointer", border:`1.5px solid ${d.color}22`, display:"flex", alignItems:"center", gap:"0.6rem" }}>
+                <span style={{ fontSize:"1.4rem" }}>{d.icon}</span>
+                <div>
+                  <div style={{ fontSize:"0.78rem", fontWeight:700, color:d.color }}>{d.name}</div>
+                  <div style={{ fontSize:"0.65rem", color:"#9ca3af" }}>{tools.filter(t=>t.dept===d.id).length} وسيلة</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Parent: quick borrow guide */}
+        {user.role==="parent" && (
+          <div style={{ background:"linear-gradient(135deg,#f0fdf4,#dcfce7)", border:"1.5px solid #86efac", borderRadius:"18px", padding:"1.2rem", marginBottom:"1.2rem" }}>
+            <div style={{ fontSize:"0.9rem", fontWeight:700, color:"#065f46", marginBottom:"0.7rem" }}>👨‍👩‍👧 دليل ولي الأمر</div>
+            {["تصفح الوسائل من قائمة الوسائل","اختر وسيلة متاحة واضغط استعارة","أو أرسل طلب للمعلم إذا كانت مشغولة","تابع طلباتك من قسم الإشعارات"].map((s,i)=>(
+              <div key={i} style={{ display:"flex", gap:"0.6rem", alignItems:"flex-start", marginBottom:"0.5rem" }}>
+                <span style={{ background:"#10b981", borderRadius:"50%", width:20, height:20, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.65rem", color:"#fff", flexShrink:0, fontWeight:700 }}>{i+1}</span>
+                <span style={{ color:"#065f46", fontSize:"0.8rem" }}>{s}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ background:"#fff", borderRadius:"18px", padding:"1.2rem", boxShadow:"0 4px 20px rgba(0,0,0,0.08)", marginBottom:"1.2rem" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.9rem" }}>
+            <div style={{ fontSize:"0.9rem", fontWeight:700, color:"#0f172a" }}>🏆 أكثر الوسائل استخداماً</div>
+            <span onClick={()=>onNav("tools")} style={{ fontSize:"0.72rem", color:"#6366f1", cursor:"pointer", fontWeight:600 }}>عرض الكل ←</span>
+          </div>
+          {top.map((t,i)=>{
+            const d=DEPTS.find(x=>x.id===t.dept);
+            return (
+              <div key={t.id} onClick={()=>onNav("detail",{tool:t})} style={{ display:"flex", alignItems:"center", gap:"0.8rem", padding:"0.7rem 0", borderBottom:i<top.length-1?"1px solid #f3f4f6":"none", cursor:"pointer" }}>
+                <div style={{ width:28, height:28, borderRadius:"8px", background:d.light, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1rem" }}>{t.img}</div>
+                <div style={{ flex:1 }}><div style={{ fontSize:"0.85rem", fontWeight:600, color:"#1f2937" }}>{t.name}</div><Stars val={t.rating}/></div>
+                <div style={{ fontSize:"0.75rem", color:"#9ca3af" }}>{t.usageCount}× استخدام</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {user.role!=="parent" && (
+          <div style={{ background:"linear-gradient(135deg,#1e3a5f,#0f4c3a)", borderRadius:"18px", padding:"1.2rem", marginBottom:"1.2rem" }}>
+            <div style={{ fontSize:"0.9rem", fontWeight:700, color:"#fff", marginBottom:"0.7rem" }}>📋 تعليمات الاستخدام</div>
+            {["ابحث عن الوسيلة من خلال قسم الاستكشاف","تحقق من حالة الوسيلة قبل الحجز","احجز الوسيلة وانتظر التأكيد","سلّم الوسيلة في الوقت المحدد"].map((s,i)=>(
+              <div key={i} style={{ display:"flex", gap:"0.6rem", alignItems:"flex-start", marginBottom:"0.5rem" }}>
+                <span style={{ background:"rgba(255,255,255,0.2)", borderRadius:"50%", width:20, height:20, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.65rem", color:"#fff", flexShrink:0 }}>{i+1}</span>
+                <span style={{ color:"rgba(255,255,255,0.8)", fontSize:"0.8rem" }}>{s}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════ TOOLS ═══════════════════ */
+function ToolsScreen({ user, tools, initDept, onNav, allTags }) {
+  const [search,setSearch] = useState("");
+  const [dept,  setDept]   = useState(initDept||"all");
+  const [status,setStatus] = useState("all");
+  const [tag,   setTag]    = useState("الكل");
+
+  const filtered = useMemo(()=>tools.filter(t=>{
+    if (dept!=="all"  && t.dept!==dept)          return false;
+    if (status!=="all"&& t.status!==status)      return false;
+    if (tag!=="الكل"  && !t.tags.includes(tag))  return false;
+    if (search && !t.name.includes(search) && !t.tags.some(tg=>tg.includes(search)) && !(t.desc||"").includes(search) && !(t.goal||"").includes(search) && !(t.teacher||"").includes(search)) return false;
+    return true;
+  }),[tools,dept,status,tag,search]);
+
+  return (
+    <div style={{ paddingBottom:"5rem" }}>
+      <div style={{ background:"#0f172a", padding:"1rem 1.2rem 1.2rem" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.8rem" }}>
+          <div style={{ color:"#fff", fontSize:"1rem", fontWeight:700 }}>🔍 استكشاف الوسائل</div>
+          {(user.role==="teacher"||user.role==="admin") && (
+            <button onClick={()=>onNav("addtool")}
+              style={{ background:"linear-gradient(135deg,#10b981,#059669)", border:"none", borderRadius:"10px", padding:"0.4rem 0.9rem", color:"#fff", fontSize:"0.8rem", fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:"4px", fontFamily:"Tajawal,sans-serif" }}>
+              ➕ إضافة وسيلة
+            </button>
+          )}
+        </div>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ابحث عن وسيلة..."
+          style={{ width:"100%", background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.15)", borderRadius:"12px", padding:"0.7rem 1rem", color:"#fff", fontSize:"0.9rem", outline:"none", fontFamily:"Tajawal,sans-serif" }} />
+      </div>
+      <div style={{ background:"#fff", borderBottom:"1px solid #f3f4f6", padding:"0.8rem 1.2rem" }}>
+        <div style={{ display:"flex", gap:"0.5rem", overflowX:"auto", paddingBottom:"0.5rem", marginBottom:"0.5rem" }}>
+          {[{id:"all",name:"الكل",icon:"📋"},...DEPTS].map(d=>(
+            <button key={d.id} onClick={()=>setDept(d.id)} style={{ flexShrink:0, background:dept===d.id?"#0f172a":"#f3f4f6", color:dept===d.id?"#fff":"#6b7280", border:"none", borderRadius:"100px", padding:"0.3rem 0.9rem", fontSize:"0.75rem", cursor:"pointer", fontWeight:dept===d.id?700:400, fontFamily:"Tajawal,sans-serif" }}>
+              {d.icon} {d.name}
+            </button>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:"0.4rem", overflowX:"auto" }}>
+          {[{k:"all",label:"جميع الحالات"},...Object.entries(STATUS).map(([k,v])=>({k,label:v.label}))].map(s=>(
+            <button key={s.k} onClick={()=>setStatus(s.k)} style={{ flexShrink:0, background:status===s.k?"#10b981":"#f3f4f6", color:status===s.k?"#fff":"#6b7280", border:"none", borderRadius:"100px", padding:"0.25rem 0.8rem", fontSize:"0.7rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding:"0.6rem 1.2rem", display:"flex", gap:"0.4rem", overflowX:"auto", background:"#fafafa", borderBottom:"1px solid #f3f4f6" }}>
+        {(allTags||INIT_TAGS).map(t=>(
+          <button key={t} onClick={()=>setTag(t)} style={{ flexShrink:0, background:tag===t?"#6366f1":"transparent", color:tag===t?"#fff":"#9ca3af", border:`1px solid ${tag===t?"#6366f1":"#e5e7eb"}`, borderRadius:"100px", padding:"0.2rem 0.7rem", fontSize:"0.68rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>{t}</button>
+        ))}
+      </div>
+      <div style={{ padding:"0.6rem 1.2rem", fontSize:"0.75rem", color:"#9ca3af" }}>{filtered.length} وسيلة</div>
+      <div style={{ padding:"0 1.2rem", display:"grid", gap:"0.9rem" }}>
+        {filtered.map(t=>{
+          const d=DEPTS.find(x=>x.id===t.dept);
+          return (
+            <div key={t.id} onClick={()=>onNav("detail",{tool:t})} style={{ background:"#fff", borderRadius:"16px", padding:"1rem", boxShadow:"0 2px 12px rgba(0,0,0,0.06)", border:"1.5px solid #f3f4f6", cursor:"pointer", display:"flex", gap:"0.9rem", alignItems:"flex-start" }}>
+              <div style={{ width:54, height:54, borderRadius:"14px", background:d.light, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.8rem", flexShrink:0, overflow:"hidden" }}>
+                {(t.photos&&t.photos[0]) ? <img src={t.photos[0]} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : t.img}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"4px" }}>
+                  <div style={{ fontSize:"0.95rem", fontWeight:700, color:"#1f2937" }}>{t.name}</div>
+                  <Badge status={t.status}/>
+                </div>
+                <div style={{ fontSize:"0.72rem", color:"#9ca3af", marginBottom:"4px" }}>{t.teacher} • {d.icon} {d.name}</div>
+                <Stars val={t.rating}/>
+                <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap", marginTop:"6px" }}>
+                  {t.tags.map(tg=><span key={tg} style={{ background:"#f3f4f6", color:"#6b7280", borderRadius:"6px", padding:"1px 6px", fontSize:"0.65rem" }}>{tg}</span>)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {filtered.length===0 && <div style={{ textAlign:"center", padding:"3rem", color:"#9ca3af" }}><div style={{ fontSize:"3rem" }}>🔍</div><div>لا توجد نتائج</div></div>}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════ DETAIL ═══════════════════ */
+function DetailScreen({ user, tool, tools, setTools, notifications, setNotifications, onBack }) {
+  // ✅ FIX: تعريف liveTool أولاً قبل استخدامه في useState
+  const liveTool = tools.find(t=>t.id===tool.id)||tool;
+
+  const [tab,      setTab]      = useState("info");
+  const [lightbox, setLightbox] = useState(null);
+  const [comment,  setComment]  = useState(""); const [myRating,setMyRating] = useState(0);
+  const [comments, setComments] = useState(liveTool.comments||[{user:"أ. ريم الشمري",text:"وسيلة ممتازة وسهلة الاستخدام",rating:5,date:"١ مارس"}]);
+  const [reqNote,  setReqNote]  = useState("");
+  const [reqSent,  setReqSent]  = useState(false);
+  const [editName,  setEditName]  = useState("");
+  const [editDesc,  setEditDesc]  = useState("");
+  const [editGoal,  setEditGoal]  = useState("");
+  const [editDept,  setEditDept]  = useState("");
+  const [editTags,  setEditTags]  = useState("");
+  const [editSaved, setEditSaved] = useState(false);
+  const [mediaTab,  setMediaTab]  = useState("info");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const d        = DEPTS.find(x=>x.id===liveTool.dept);
+  const canEdit  = user.role==="admin" || (user.role==="teacher" && liveTool.teacherId===user.id);
+
+  // ── ولي الأمر والمعلم يقدروا يستعيروا ──
+  const canBook  = liveTool.status==="available"; // الكل يقدر يحجز لو متاحة
+  const canReq   = liveTool.status!=="available"; // الكل يقدر يطلب لو مش متاحة
+
+  const [booked,         setBooked]         = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedDue,    setSelectedDue]    = useState("");
+
+  const openManage = () => {
+    setEditName(liveTool.name);
+    setEditDesc(liveTool.desc);
+    setEditGoal(liveTool.goal);
+    setEditDept(liveTool.dept);
+    setEditTags((liveTool.tags||[]).join("، "));
+    setEditSaved(false);
+    setTab("manage");
+  };
+
+  const saveToolEdits = () => {
+    const tagsArr = editTags.split(/[،,]/).map(t=>t.trim()).filter(Boolean);
+    // BUG FIX: use updateTools via setTools (which is now updateTools in App)
+    setTools(prev=>prev.map(t=>t.id===liveTool.id?{...t,name:editName,desc:editDesc,goal:editGoal,dept:editDept,tags:tagsArr}:t));
+    setEditSaved(true);
+    setTimeout(()=>setEditSaved(false),2500);
+  };
+
+  const handleToolPhoto = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      setTools(prev=>prev.map(t=>t.id===liveTool.id?{...t,photos:[...(t.photos||[]),ev.target.result]}:t));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleToolVideo = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      setTools(prev=>prev.map(t=>t.id===liveTool.id?{...t,video:ev.target.result}:t));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removePhoto = (idx) => {
+    setTools(prev=>prev.map(t=>t.id===liveTool.id?{...t,photos:(t.photos||[]).filter((_,i)=>i!==idx)}:t));
+  };
+
+  // الحجز مع تحديد موعد التسليم يدوياً
+  const doBook = (dueDateISO) => {
+    const today    = new Date().toLocaleDateString("ar-SA");
+    const dueDate  = new Date(dueDateISO);
+    const dueDateStr = dueDate.toLocaleDateString("ar-SA");
+
+    if (user.role==="parent") {
+      const targetId = liveTool.teacherId || 1;
+      const notif = {
+        id: Date.now(), type:"request", toolId:liveTool.id, toolName:liveTool.name,
+        toolImg:liveTool.img, from:user.name, fromId:user.id, fromRole:user.role,
+        toId:targetId, note:"طلب استعارة مباشر", status:"pending", date:today,
+      };
+      setNotifications(prev=>[notif,...prev]);
+      setBooked(true);
+      setShowDatePicker(false);
+      return;
+    }
+
+    // إشعار تذكير يوم قبل (يُضاف كـ reminder يُعرض عند فتح التطبيق)
+    const reminderDate = new Date(dueDateISO);
+    reminderDate.setDate(reminderDate.getDate()-1);
+    const reminder = {
+      id: Date.now()+1,
+      type: "reminder",
+      toolId: liveTool.id,
+      toolName: liveTool.name,
+      toolImg: liveTool.img,
+      from: "النظام",
+      fromId: 0,
+      toId: user.id,
+      toId2: liveTool.teacherId||1,
+      borrowerName: user.name,
+      dueDate: dueDateStr,
+      dueDateISO: dueDateISO,
+      reminderDateISO: reminderDate.toISOString().split("T")[0],
+      status: "pending",
+      date: today,
+    };
+    setNotifications(prev=>[reminder,...prev]);
+
+    setTools(prev=>prev.map(t=>t.id===liveTool.id?{
+      ...t,
+      status:"borrowed",
+      borrowedBy: user.name,
+      borrowedById: user.id,
+      dueDate: dueDateStr,
+      dueDateISO: dueDateISO,
+      usageCount: t.usageCount+1,
+      history:[{date:today, user:user.name, action:"استلام", note:`موعد التسليم: ${dueDateStr}`}, ...t.history]
+    }:t));
+    setBooked(true);
+    setShowDatePicker(false);
+  };
+
+  const sendRequest = () => {
+    // BUG FIX: ولي الأمر يرسل للأدمن لو مفيش teacher
+    const targetId = liveTool.teacherId || 1;
+    const notif = {
+      id: Date.now(),
+      type: "request",
+      toolId: liveTool.id,
+      toolName: liveTool.name,
+      toolImg: liveTool.img,
+      from: user.name,
+      fromId: user.id,
+      fromRole: user.role,
+      toId: targetId,
+      note: reqNote,
+      status: "pending",
+      date: new Date().toLocaleDateString("ar-SA"),
+    };
+    setNotifications(prev=>[notif,...prev]);
+    setReqSent(true);
+  };
+
+  // BUG FIX: تغيير Status بيحفظ صح عبر setTools (updateTools)
+  const changeStatus = (k) => {
+    const today = new Date().toLocaleDateString("ar-SA");
+    setTools(prev=>prev.map(t=>{
+      if(t.id!==liveTool.id) return t;
+      const histEntry = k==="available"
+        ? {date:today, user:user.name, action:"تسليم", note:""}
+        : k==="borrowed"||k==="inuse"
+        ? {date:today, user:user.name, action:"استلام", note:""}
+        : null;
+      return {
+        ...t,
+        status:k,
+        usageCount: (k==="borrowed"||k==="inuse") ? t.usageCount+1 : t.usageCount,
+        history: histEntry ? [histEntry, ...t.history] : t.history,
+      };
+    }));
+  };
+
+  const deleteTool = () => {
+    setTools(prev=>prev.filter(t=>t.id!==liveTool.id));
+    onBack();
+  };
+
+  return (
+    <div style={{ paddingBottom:"5rem" }}>
+      {confirmDelete && <ConfirmDialog message={`هل أنت متأكد من حذف "${liveTool.name}"؟ لا يمكن التراجع.`} onConfirm={deleteTool} onCancel={()=>setConfirmDelete(false)}/>}
+      {lightbox && (
+        <div onClick={()=>setLightbox(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem" }}>
+          <img src={lightbox} alt="" style={{ maxWidth:"100%", maxHeight:"90vh", borderRadius:"12px", objectFit:"contain" }}/>
+          <button onClick={()=>setLightbox(null)} style={{ position:"absolute", top:"1rem", left:"1rem", background:"rgba(255,255,255,0.2)", border:"none", borderRadius:"50%", width:36, height:36, color:"#fff", fontSize:"1.2rem", cursor:"pointer" }}>✕</button>
+        </div>
+      )}
+
+      <div style={{ background:`linear-gradient(135deg,${d.color}dd,${d.color}99)`, padding:"1.5rem 1.2rem 2rem", position:"relative", overflow:"hidden" }}>
+        <button onClick={onBack} style={{ background:"rgba(255,255,255,0.2)", border:"none", borderRadius:"10px", padding:"0.4rem 0.8rem", color:"#fff", cursor:"pointer", fontSize:"0.85rem", marginBottom:"1rem", fontFamily:"Tajawal,sans-serif" }}>← رجوع</button>
+        {(liveTool.photos&&liveTool.photos[0]) ? (
+          <img src={liveTool.photos[0]} alt="" style={{ position:"absolute", left:"1rem", top:"50%", transform:"translateY(-50%)", width:110, height:110, borderRadius:"16px", objectFit:"cover", opacity:0.35 }}/>
+        ) : (
+          <div style={{ position:"absolute", left:"1rem", top:"50%", transform:"translateY(-50%)", fontSize:"6rem", opacity:0.15 }}>{liveTool.img}</div>
+        )}
+        <Badge status={liveTool.status}/>
+        <div style={{ color:"#fff", fontSize:"1.6rem", fontWeight:900, marginTop:"0.5rem", marginBottom:"0.3rem" }}>{liveTool.name}</div>
+        <div style={{ color:"rgba(255,255,255,0.8)", fontSize:"0.8rem" }}>{liveTool.teacher} • {d.name}</div>
+        <div style={{ marginTop:"0.5rem" }}><Stars val={liveTool.rating}/></div>
+      </div>
+
+      <div style={{ background:"#fff", display:"flex", borderBottom:"1px solid #f3f4f6", padding:"0 1.2rem" }}>
+        {[{k:"info",label:"التفاصيل"},{k:"history",label:"السجل"},{k:"reviews",label:"التقييمات"},...(canEdit?[{k:"manage",label:"⚙️ إدارة"}]:[])].map(t=>(
+          <button key={t.k} onClick={()=>t.k==="manage"?openManage():setTab(t.k)} style={{ flex:1, padding:"0.8rem 0.5rem", border:"none", background:"none", borderBottom:tab===t.k?`2.5px solid ${d.color}`:"2.5px solid transparent", color:tab===t.k?d.color:"#9ca3af", fontWeight:tab===t.k?700:400, fontSize:"0.78rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ padding:"1.2rem" }}>
+        {tab==="info" && (
+          <>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.7rem", marginBottom:"1rem" }}>
+              {[{label:"الهدف التعليمي",val:liveTool.goal,icon:"🎯"},{label:"عدد الاستخدامات",val:`${liveTool.usageCount} مرة`,icon:"📊"}].map(m=>(
+                <div key={m.label} style={{ background:"#f9fafb", borderRadius:"12px", padding:"0.8rem" }}>
+                  <div style={{ fontSize:"0.7rem", color:"#9ca3af", marginBottom:"4px" }}>{m.icon} {m.label}</div>
+                  <div style={{ fontSize:"0.85rem", fontWeight:600, color:"#1f2937" }}>{m.val}</div>
+                </div>
+              ))}
+            </div>
+            {liveTool.dueDate && liveTool.status==="borrowed" && (
+              <div style={{ background:"#fffbeb", border:"1.5px solid #f59e0b44", borderRadius:"12px", padding:"0.8rem", marginBottom:"1rem", display:"flex", alignItems:"center", gap:"0.6rem" }}>
+                <span style={{ fontSize:"1.2rem" }}>⏰</span>
+                <div>
+                  <div style={{ fontSize:"0.72rem", color:"#92400e" }}>موعد التسليم</div>
+                  <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#92400e" }}>{liveTool.dueDate}</div>
+                </div>
+                {liveTool.borrowedBy && <div style={{ marginRight:"auto", fontSize:"0.72rem", color:"#9ca3af" }}>بواسطة: {liveTool.borrowedBy}</div>}
+              </div>
+            )}
+            <div style={{ background:"#f9fafb", borderRadius:"12px", padding:"1rem", marginBottom:"1rem" }}>
+              <div style={{ fontSize:"0.75rem", color:"#9ca3af", marginBottom:"6px" }}>الوصف</div>
+              <div style={{ fontSize:"0.88rem", color:"#374151", lineHeight:1.7 }}>{liveTool.desc}</div>
+            </div>
+            <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap", marginBottom:"1.2rem" }}>
+              {liveTool.tags.map(tg=><span key={tg} style={{ background:d.light, color:d.color, border:`1px solid ${d.color}33`, borderRadius:"8px", padding:"3px 10px", fontSize:"0.75rem", fontWeight:600 }}>{tg}</span>)}
+            </div>
+            {(liveTool.photos||[]).length>0 && (
+              <div style={{ marginBottom:"1rem" }}>
+                <div style={{ fontSize:"0.78rem", color:"#9ca3af", marginBottom:"6px" }}>📸 صور الوسيلة</div>
+                <div style={{ display:"flex", gap:"0.5rem", overflowX:"auto" }}>
+                  {liveTool.photos.map((src,i)=>(
+                    <img key={i} src={src} alt="" onClick={()=>setLightbox(src)} style={{ width:90, height:90, borderRadius:"10px", objectFit:"cover", flexShrink:0, cursor:"pointer" }}/>
+                  ))}
+                </div>
+              </div>
+            )}
+            {liveTool.video && (
+              <div style={{ marginBottom:"1rem" }}>
+                <div style={{ fontSize:"0.78rem", color:"#9ca3af", marginBottom:"6px" }}>🎬 فيديو الوسيلة</div>
+                <video src={liveTool.video} controls style={{ width:"100%", borderRadius:"12px", maxHeight:200 }}/>
+              </div>
+            )}
+
+            {/* ── حجز للجميع (متاحة) ── */}
+            {canBook && !booked && !showDatePicker && (
+              <button onClick={()=>{ user.role==="parent" ? doBook("") : setShowDatePicker(true); }}
+                style={{ width:"100%", background:`linear-gradient(135deg,${d.color},${d.color}cc)`, border:"none", borderRadius:"14px", padding:"0.9rem", color:"#fff", fontSize:"1rem", fontWeight:700, cursor:"pointer", marginBottom:"0.8rem", fontFamily:"Tajawal,sans-serif" }}>
+                {user.role==="parent" ? "📚 استعارة الوسيلة" : "📅 حجز الوسيلة"}
+              </button>
+            )}
+
+            {/* ── منتقي التاريخ للمعلم ── */}
+            {canBook && !booked && showDatePicker && (
+              <div style={{ background:"#f9fafb", border:`1.5px solid ${d.color}44`, borderRadius:"16px", padding:"1.1rem", marginBottom:"0.8rem" }}>
+                <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#0f172a", marginBottom:"0.8rem" }}>📅 حدد موعد التسليم</div>
+                <input
+                  type="date"
+                  value={selectedDue}
+                  min={new Date(Date.now()+86400000).toISOString().split("T")[0]}
+                  onChange={e=>setSelectedDue(e.target.value)}
+                  style={{ width:"100%", background:"#fff", border:"1px solid #e5e7eb", borderRadius:"10px", padding:"0.7rem 1rem", fontSize:"0.9rem", outline:"none", fontFamily:"Tajawal,sans-serif", marginBottom:"0.8rem", color:"#1f2937" }}
+                />
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.6rem" }}>
+                  <button onClick={()=>setShowDatePicker(false)}
+                    style={{ background:"#f3f4f6", border:"none", borderRadius:"10px", padding:"0.7rem", color:"#6b7280", fontWeight:700, fontSize:"0.85rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>إلغاء</button>
+                  <button onClick={()=>{ if(!selectedDue){alert("اختر موعد التسليم أولاً"); return;} doBook(selectedDue); }}
+                    style={{ background:`linear-gradient(135deg,${d.color},${d.color}cc)`, border:"none", borderRadius:"10px", padding:"0.7rem", color:"#fff", fontWeight:700, fontSize:"0.85rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>تأكيد الحجز ✅</button>
+                </div>
+              </div>
+            )}
+
+            {booked && <div style={{ background:"#ecfdf5", border:"1.5px solid #10b981", borderRadius:"14px", padding:"0.9rem", textAlign:"center", color:"#065f46", fontWeight:700, marginBottom:"0.8rem" }}>✅ {user.role==="parent"?"تم إرسال طلب الاستعارة! سيتم إخطارك عند الرد":`تم الحجز بنجاح! موعد التسليم: ${liveTool.dueDate||""}`}</div>}
+
+            {/* ── طلب لو مش متاحة ── */}
+            {canReq && !reqSent && (
+              <div style={{ background:"#fffbeb", border:"1.5px solid #f59e0b33", borderRadius:"14px", padding:"1rem" }}>
+                <div style={{ fontSize:"0.85rem", fontWeight:700, color:"#92400e", marginBottom:"0.6rem" }}>📨 طلب الوسيلة</div>
+                <p style={{ fontSize:"0.78rem", color:"#92400e", marginBottom:"0.8rem" }}>الوسيلة غير متاحة حالياً — يمكنك إرسال طلب{user.role==="parent"?" للمعلم المسؤول":" للمعلم"}</p>
+                <textarea value={reqNote} onChange={e=>setReqNote(e.target.value)} placeholder="اكتب ملاحظة مع طلبك (اختياري)..." rows={2}
+                  style={{ width:"100%", border:"1px solid #f59e0b66", borderRadius:"10px", padding:"0.6rem", fontSize:"0.82rem", resize:"none", fontFamily:"Tajawal,sans-serif", outline:"none", background:"#fff", marginBottom:"0.6rem" }} />
+                <button onClick={sendRequest} style={{ width:"100%", background:"linear-gradient(135deg,#f59e0b,#d97706)", border:"none", borderRadius:"10px", padding:"0.7rem", color:"#fff", fontSize:"0.88rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>
+                  إرسال الطلب 📨
+                </button>
+              </div>
+            )}
+            {canReq && reqSent && (
+              <div style={{ background:"#ecfdf5", border:"1.5px solid #10b981", borderRadius:"14px", padding:"0.9rem", textAlign:"center", color:"#065f46", fontWeight:700 }}>
+                ✅ تم إرسال طلبك! سيتم إخطارك عند الرد
+              </div>
+            )}
+          </>
+        )}
+
+        {tab==="history" && (
+          <div>
+            <div style={{ fontSize:"0.85rem", fontWeight:700, marginBottom:"1rem" }}>📋 جدول الاستلام والتسليم</div>
+            {liveTool.history.length===0 && <div style={{ textAlign:"center", padding:"2rem", color:"#9ca3af" }}><div style={{ fontSize:"2.5rem" }}>📋</div><div>لا يوجد سجل بعد</div></div>}
+            {liveTool.history.map((h,i)=>(
+              <div key={i} style={{ background:"#f9fafb", borderRadius:"12px", padding:"0.9rem", marginBottom:"0.7rem", display:"flex", gap:"0.8rem", alignItems:"center" }}>
+                <div style={{ width:36, height:36, borderRadius:"10px", background:h.action==="استلام"?"#ecfdf5":"#eff6ff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.1rem" }}>{h.action==="استلام"?"📤":"📥"}</div>
+                <div style={{ flex:1 }}><div style={{ fontSize:"0.85rem", fontWeight:600 }}>{h.user}</div><div style={{ fontSize:"0.72rem", color:"#9ca3af" }}>{h.action} • {h.date}</div>{h.note&&<div style={{ fontSize:"0.72rem", color:"#6b7280" }}>"{h.note}"</div>}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab==="reviews" && (
+          <div>
+            <div style={{ background:"#f9fafb", borderRadius:"14px", padding:"1rem", marginBottom:"1rem" }}>
+              <div style={{ fontSize:"0.8rem", fontWeight:600, marginBottom:"0.5rem" }}>💬 أضف تعليقك</div>
+              <div style={{ display:"flex", gap:"4px", marginBottom:"0.6rem" }}>
+                {[1,2,3,4,5].map(s=><span key={s} onClick={()=>setMyRating(s)} style={{ fontSize:"1.3rem", cursor:"pointer", color:s<=myRating?"#f59e0b":"#e5e7eb" }}>★</span>)}
+              </div>
+              <textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="اكتب تعليقك..." rows={2}
+                style={{ width:"100%", border:"1px solid #e5e7eb", borderRadius:"10px", padding:"0.6rem", fontSize:"0.85rem", resize:"none", fontFamily:"Tajawal,sans-serif", outline:"none" }} />
+              <button onClick={()=>{ 
+                if(!comment.trim()) return; 
+                const newComment = {user:user.name,text:comment,rating:myRating||4,date:"الآن",userId:user.id};
+                const updatedComments = [newComment, ...comments];
+                setComments(updatedComments);
+                setTools(prev=>prev.map(t=>t.id===liveTool.id?{...t,comments:updatedComments}:t));
+                setComment(""); setMyRating(0); 
+              }}
+                style={{ marginTop:"0.5rem", background:"#0f172a", color:"#fff", border:"none", borderRadius:"10px", padding:"0.5rem 1.2rem", fontSize:"0.82rem", cursor:"pointer", fontWeight:700, fontFamily:"Tajawal,sans-serif" }}>نشر</button>
+            </div>
+            {comments.map((c,i)=>(
+              <div key={i} style={{ background:"#fff", border:"1px solid #f3f4f6", borderRadius:"12px", padding:"0.9rem", marginBottom:"0.7rem" }}>
+                <div style={{ display:"flex", gap:"0.6rem", alignItems:"center", marginBottom:"0.4rem" }}>
+                  <Av initials={c.user.split(" ").map(w=>w[0]).join("").slice(0,2)} color="#6366f1" size={32}/>
+                  <div><div style={{ fontSize:"0.82rem", fontWeight:700 }}>{c.user}</div><div style={{ fontSize:"0.65rem", color:"#9ca3af" }}>{c.date}</div></div>
+                  <div style={{ marginRight:"auto", display:"flex", alignItems:"center", gap:"0.5rem" }}>
+                    <Stars val={c.rating}/>
+                    {(user.role==="admin" || c.userId===user.id) && (
+                      <button onClick={()=>{
+                        const updatedComments = comments.filter((_,j)=>j!==i);
+                        setComments(updatedComments);
+                        setTools(prev=>prev.map(t=>t.id===liveTool.id?{...t,comments:updatedComments}:t));
+                      }}
+                        style={{ background:"none", border:"none", cursor:"pointer", color:"#ef4444", fontSize:"0.75rem", padding:"2px" }}>🗑️</button>
+                    )}
+                  </div>
+                </div>
+                <div style={{ fontSize:"0.82rem", color:"#374151" }}>{c.text}</div>
+              </div>
+            ))}
+            {comments.length===0 && <div style={{ textAlign:"center", padding:"2rem", color:"#9ca3af" }}><div style={{ fontSize:"2rem" }}>💬</div><div>لا توجد تعليقات بعد — كن أول من يعلق!</div></div>}
+          </div>
+        )}
+
+        {tab==="manage" && canEdit && (
+          <div>
+            <div style={{ display:"flex", gap:"0.5rem", marginBottom:"1.2rem", background:"#f3f4f6", borderRadius:"12px", padding:"4px" }}>
+              {[{k:"info",label:"✏️ تعديل البيانات"},{k:"status",label:"🔄 الحالة"},{k:"media",label:"📸 الوسائط"}].map(st=>(
+                <button key={st.k} onClick={()=>setMediaTab(st.k)}
+                  style={{ flex:1, padding:"0.45rem 0.3rem", border:"none", borderRadius:"9px", cursor:"pointer", fontSize:"0.72rem", fontWeight:700,
+                    background:mediaTab===st.k?"#fff":"transparent", color:mediaTab===st.k?"#0f172a":"#9ca3af",
+                    boxShadow:mediaTab===st.k?"0 1px 4px rgba(0,0,0,0.1)":"none", fontFamily:"Tajawal,sans-serif" }}>
+                  {st.label}
+                </button>
+              ))}
+            </div>
+
+            {mediaTab==="info" && (
+              <div>
+                <div style={{ marginBottom:"0.75rem" }}><label style={lLabel}>اسم الوسيلة</label><input value={editName} onChange={e=>setEditName(e.target.value)} style={lightInput}/></div>
+                <div style={{ marginBottom:"0.75rem" }}><label style={lLabel}>الوصف</label><textarea value={editDesc} onChange={e=>setEditDesc(e.target.value)} rows={3} style={{...lightInput,resize:"none",lineHeight:1.6}}/></div>
+                <div style={{ marginBottom:"0.75rem" }}><label style={lLabel}>الهدف التعليمي</label><input value={editGoal} onChange={e=>setEditGoal(e.target.value)} style={lightInput}/></div>
+                <div style={{ marginBottom:"0.75rem" }}><label style={lLabel}>القسم</label>
+                  <select value={editDept} onChange={e=>setEditDept(e.target.value)} style={{...lightInput,cursor:"pointer"}}>
+                    {DEPTS.map(d=><option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginBottom:"1rem" }}><label style={lLabel}>الوسوم (افصل بينها بفاصلة)</label><input value={editTags} onChange={e=>setEditTags(e.target.value)} placeholder="مثال: تركيز، لغة، سلوك" style={lightInput}/></div>
+                {editSaved && <div style={{ textAlign:"center", color:"#10b981", fontWeight:700, fontSize:"0.8rem", marginBottom:"0.7rem" }}>✅ تم الحفظ بنجاح</div>}
+                <button onClick={saveToolEdits} style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#4f46e5)", border:"none", borderRadius:"12px", padding:"0.8rem", color:"#fff", fontSize:"0.92rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>💾 حفظ التعديلات</button>
+                {/* حذف: صاحب الوسيلة أو الأدمن */}
+                {canEdit && (
+                  <button onClick={()=>setConfirmDelete(true)} style={{ width:"100%", marginTop:"0.7rem", background:"#fef2f2", color:"#ef4444", border:"1.5px solid #fecaca", borderRadius:"12px", padding:"0.7rem", fontSize:"0.88rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>🗑️ حذف الوسيلة</button>
+                )}
+              </div>
+            )}
+
+            {/* BUG FIX: Status يحفظ عبر changeStatus */}
+            {mediaTab==="status" && (
+              <div style={{ display:"grid", gap:"0.6rem" }}>
+                {Object.entries(STATUS).map(([k,s])=>(
+                  <button key={k} onClick={()=>changeStatus(k)}
+                    style={{ background:liveTool.status===k?s.bg:"#f9fafb", border:`1.5px solid ${liveTool.status===k?s.color:"#e5e7eb"}`, borderRadius:"12px", padding:"0.75rem 1rem", display:"flex", alignItems:"center", gap:"0.6rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>
+                    <span>{s.icon}</span><span style={{ color:s.color, fontWeight:700, fontSize:"0.88rem" }}>{s.label}</span>
+                    {liveTool.status===k && <span style={{ marginRight:"auto", color:s.color, fontSize:"0.75rem" }}>✓ الحالي</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {mediaTab==="media" && (
+              <div>
+                <div style={{ marginBottom:"1.2rem" }}>
+                  <div style={{ fontSize:"0.85rem", fontWeight:700, color:"#0f172a", marginBottom:"0.7rem" }}>📸 صور الوسيلة</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"0.5rem", marginBottom:"0.7rem" }}>
+                    {(liveTool.photos||[]).map((src,i)=>(
+                      <div key={i} style={{ position:"relative", borderRadius:"10px", overflow:"hidden", aspectRatio:"1" }}>
+                        <img src={src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+                        <button onClick={()=>removePhoto(i)} style={{ position:"absolute", top:3, left:3, background:"rgba(0,0,0,0.6)", color:"#fff", border:"none", borderRadius:"50%", width:20, height:20, fontSize:"0.65rem", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                      </div>
+                    ))}
+                    <label htmlFor="tool-photo-input" style={{ aspectRatio:"1", borderRadius:"10px", border:"2px dashed #d1d5db", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", background:"#f9fafb", gap:"4px" }}>
+                      <span style={{ fontSize:"1.4rem" }}>➕</span>
+                      <span style={{ fontSize:"0.62rem", color:"#9ca3af" }}>إضافة صورة</span>
+                    </label>
+                    <input id="tool-photo-input" type="file" accept="image/*" onChange={handleToolPhoto} style={{ display:"none" }}/>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize:"0.85rem", fontWeight:700, color:"#0f172a", marginBottom:"0.7rem" }}>🎬 فيديو الوسيلة</div>
+                  {liveTool.video ? (
+                    <div>
+                      <video src={liveTool.video} controls style={{ width:"100%", borderRadius:"12px", marginBottom:"0.6rem", maxHeight:200 }}/>
+                      <button onClick={()=>setTools(prev=>prev.map(t=>t.id===liveTool.id?{...t,video:null}:t))} style={{ width:"100%", background:"#fef2f2", color:"#ef4444", border:"1.5px solid #fecaca", borderRadius:"10px", padding:"0.6rem", fontSize:"0.82rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>🗑️ حذف الفيديو</button>
+                    </div>
+                  ) : (
+                    <label htmlFor="tool-video-input" style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:"0.5rem", border:"2px dashed #d1d5db", borderRadius:"14px", padding:"2rem", cursor:"pointer", background:"#f9fafb" }}>
+                      <span style={{ fontSize:"2.5rem" }}>🎬</span>
+                      <span style={{ fontSize:"0.82rem", fontWeight:600, color:"#374151" }}>اضغط لرفع فيديو</span>
+                      <span style={{ fontSize:"0.7rem", color:"#9ca3af" }}>MP4, MOV, AVI</span>
+                    </label>
+                  )}
+                  <input id="tool-video-input" type="file" accept="video/*" onChange={handleToolVideo} style={{ display:"none" }}/>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════ ADD TOOL ═══════════════════ */
+function AddToolScreen({ user, tools, setTools, onBack }) {
+  const [name,    setName]    = useState("");
+  const [desc,    setDesc]    = useState("");
+  const [goal,    setGoal]    = useState("");
+  const [dept,    setDept]    = useState("autism");
+  const [tagsStr, setTagsStr] = useState("");
+  const [photos,  setPhotos]  = useState([]);
+  const [video,   setVideo]   = useState(null);
+  const [err,     setErr]     = useState("");
+  const [done,    setDone]    = useState(false);
+
+  const EMOJIS = ["🎯","🎨","🔢","📖","🖐️","😊","🧩","🌟","🎭","🎲","📝","🎵","🏆","🌈","🧸"];
+  const [chosenEmoji, setChosenEmoji] = useState("🎯");
+  const [showEmoji,   setShowEmoji]   = useState(false);
+
+  const handlePhoto = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => setPhotos(prev=>[...prev, ev.target.result]);
+    reader.readAsDataURL(file);
+  };
+  const handleVideo = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => setVideo(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const submit = () => {
+    if (!name.trim()) return setErr("اسم الوسيلة مطلوب");
+    if (!desc.trim()) return setErr("الوصف مطلوب");
+    if (!goal.trim()) return setErr("الهدف التعليمي مطلوب");
+    const tagsArr = tagsStr.split(/[،,]/).map(t=>t.trim()).filter(Boolean);
+    const newTool = {
+      id: Date.now(), name:name.trim(), desc:desc.trim(), goal:goal.trim(), dept, tags:tagsArr,
+      status:"available", teacher:user.name, teacherId:user.id,
+      rating:0, reviews:0, usageCount:0, img:chosenEmoji, photos, video, history:[],
+    };
+    setTools(prev=>[newTool,...prev]);
+    setDone(true);
+    setTimeout(()=>onBack(), 1800);
+  };
+
+  const iStyle2 = { width:"100%", background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"0.75rem 1rem", color:"#1f2937", fontSize:"0.88rem", outline:"none", fontFamily:"Tajawal,sans-serif" };
+  const lStyle2 = { color:"#6b7280", fontSize:"0.76rem", display:"block", marginBottom:"5px" };
+
+  if (done) return (
+    <div style={{ minHeight:"60vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"2rem" }}>
+      <div style={{ fontSize:"4rem", marginBottom:"1rem" }}>🎉</div>
+      <div style={{ fontSize:"1.1rem", fontWeight:800, color:"#0f172a", marginBottom:"0.4rem" }}>تمت إضافة الوسيلة!</div>
+      <div style={{ fontSize:"0.82rem", color:"#9ca3af" }}>جارٍ العودة...</div>
+    </div>
+  );
+
+  return (
+    <div style={{ paddingBottom:"2rem" }}>
+      <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a5f)", padding:"1.5rem 1.2rem", position:"relative" }}>
+        <button onClick={onBack} style={{ background:"rgba(255,255,255,0.15)", border:"none", borderRadius:"10px", padding:"0.4rem 0.8rem", color:"#fff", cursor:"pointer", fontSize:"0.85rem", marginBottom:"1rem", fontFamily:"Tajawal,sans-serif" }}>← رجوع</button>
+        <div style={{ color:"#fff", fontSize:"1.3rem", fontWeight:900 }}>➕ إضافة وسيلة جديدة</div>
+        <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.78rem", marginTop:"4px" }}>أضف وسيلتك التعليمية للبنك المشترك</div>
+      </div>
+      <div style={{ padding:"1.2rem", display:"grid", gap:"1rem" }}>
+        <div style={{ background:"#fff", borderRadius:"16px", padding:"1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+          <label style={lStyle2}>أيقونة الوسيلة</label>
+          <div style={{ display:"flex", alignItems:"center", gap:"0.8rem" }}>
+            <div onClick={()=>setShowEmoji(!showEmoji)} style={{ width:56, height:56, borderRadius:"14px", background:"#f3f4f6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"2rem", cursor:"pointer", border:"2px solid #e5e7eb" }}>{chosenEmoji}</div>
+            <div style={{ fontSize:"0.78rem", color:"#9ca3af" }}>اضغط لاختيار أيقونة</div>
+          </div>
+          {showEmoji && (
+            <div style={{ display:"flex", flexWrap:"wrap", gap:"0.4rem", marginTop:"0.7rem" }}>
+              {EMOJIS.map(e=>(
+                <span key={e} onClick={()=>{setChosenEmoji(e);setShowEmoji(false);}} style={{ fontSize:"1.6rem", cursor:"pointer", padding:"4px", borderRadius:"8px", background:chosenEmoji===e?"#eef2ff":"transparent", border:chosenEmoji===e?"2px solid #6366f1":"2px solid transparent" }}>{e}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ background:"#fff", borderRadius:"16px", padding:"1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#0f172a", marginBottom:"0.9rem" }}>📋 معلومات الوسيلة</div>
+          <div style={{ marginBottom:"0.8rem" }}><label style={lStyle2}>اسم الوسيلة *</label><input value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="مثال: بطاقات الأرقام" style={iStyle2}/></div>
+          <div style={{ marginBottom:"0.8rem" }}><label style={lStyle2}>القسم</label>
+            <select value={dept} onChange={e=>setDept(e.target.value)} style={{...iStyle2,cursor:"pointer"}}>
+              {DEPTS.map(d=><option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom:"0.8rem" }}><label style={lStyle2}>الهدف التعليمي *</label><input value={goal} onChange={e=>{setGoal(e.target.value);setErr("");}} placeholder="مثال: تنمية الانتباه" style={iStyle2}/></div>
+          <div style={{ marginBottom:"0.8rem" }}><label style={lStyle2}>الوصف التفصيلي *</label><textarea value={desc} onChange={e=>{setDesc(e.target.value);setErr("");}} rows={3} placeholder="اشرح الوسيلة وكيفية استخدامها..." style={{...iStyle2,resize:"none",lineHeight:1.6}}/></div>
+          <div><label style={lStyle2}>الوسوم / Tags (افصل بفاصلة)</label><input value={tagsStr} onChange={e=>setTagsStr(e.target.value)} placeholder="مثال: تركيز، لغة، حركي" style={iStyle2}/></div>
+        </div>
+        <div style={{ background:"#fff", borderRadius:"16px", padding:"1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#0f172a", marginBottom:"0.9rem" }}>📸 صور الوسيلة</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"0.5rem" }}>
+            {photos.map((src,i)=>(
+              <div key={i} style={{ position:"relative", aspectRatio:"1", borderRadius:"10px", overflow:"hidden" }}>
+                <img src={src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+                <button onClick={()=>setPhotos(prev=>prev.filter((_,j)=>j!==i))} style={{ position:"absolute", top:3, left:3, background:"rgba(0,0,0,0.65)", color:"#fff", border:"none", borderRadius:"50%", width:20, height:20, fontSize:"0.65rem", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+              </div>
+            ))}
+            <label htmlFor="add-tool-photo" style={{ aspectRatio:"1", borderRadius:"10px", border:"2px dashed #d1d5db", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", background:"#f9fafb", gap:"4px" }}>
+              <span style={{ fontSize:"1.4rem" }}>➕</span>
+              <span style={{ fontSize:"0.62rem", color:"#9ca3af" }}>صورة</span>
+            </label>
+            <input id="add-tool-photo" type="file" accept="image/*" onChange={handlePhoto} style={{ display:"none" }}/>
+          </div>
+        </div>
+        <div style={{ background:"#fff", borderRadius:"16px", padding:"1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#0f172a", marginBottom:"0.9rem" }}>🎬 فيديو توضيحي</div>
+          {video ? (
+            <div>
+              <video src={video} controls style={{ width:"100%", borderRadius:"12px", marginBottom:"0.6rem", maxHeight:180 }}/>
+              <button onClick={()=>setVideo(null)} style={{ width:"100%", background:"#fef2f2", color:"#ef4444", border:"1.5px solid #fecaca", borderRadius:"10px", padding:"0.55rem", fontSize:"0.82rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>🗑️ حذف الفيديو</button>
+            </div>
+          ) : (
+            <label htmlFor="add-tool-video" style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:"0.5rem", border:"2px dashed #d1d5db", borderRadius:"14px", padding:"1.5rem", cursor:"pointer", background:"#f9fafb" }}>
+              <span style={{ fontSize:"2rem" }}>🎬</span>
+              <span style={{ fontSize:"0.82rem", fontWeight:600, color:"#374151" }}>اضغط لرفع فيديو</span>
+              <span style={{ fontSize:"0.7rem", color:"#9ca3af" }}>MP4, MOV</span>
+            </label>
+          )}
+          <input id="add-tool-video" type="file" accept="video/*" onChange={handleVideo} style={{ display:"none" }}/>
+        </div>
+        {err && <div style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:"12px", padding:"0.75rem", textAlign:"center", color:"#ef4444", fontSize:"0.82rem", fontWeight:600 }}>{err}</div>}
+        <button onClick={submit} style={{ width:"100%", background:"linear-gradient(135deg,#10b981,#059669)", border:"none", borderRadius:"14px", padding:"1rem", color:"#fff", fontSize:"1rem", fontWeight:800, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>✅ إضافة الوسيلة للبنك</button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════ NOTIFICATIONS ═══════════════════ */
+function NotificationsScreen({ user, notifications, setNotifications, tools, setTools, overdueTools, upcomingReminders, todayISO }) {
+  const incoming  = notifications.filter(n=>n.type==="request" && n.toId===user.id && n.status==="pending");
+  const sent      = notifications.filter(n=>n.type==="request" && n.fromId===user.id);
+  const responses = notifications.filter(n=>n.type==="response" && n.toId===user.id);
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const approve = (notif) => {
+    const today = new Date().toLocaleDateString("ar-SA");
+    const dueDate = new Date(); dueDate.setDate(dueDate.getDate()+7);
+    const dueDateStr = dueDate.toLocaleDateString("ar-SA");
+    setTools(prev=>prev.map(t=>t.id===notif.toolId?{
+      ...t,
+      status:"borrowed",
+      borrowedBy: notif.from,
+      borrowedById: notif.fromId,
+      dueDate: dueDateStr,
+      usageCount: t.usageCount+1,
+      history:[{date:today, user:notif.from, action:"استلام", note:notif.note||""}, ...t.history]
+    }:t));
+    setNotifications(prev=>[
+      ...prev.filter(n=>n.id!==notif.id),
+      { id:Date.now(), type:"response", toolName:notif.toolName, toolImg:notif.toolImg,
+        from:user.name, fromId:user.id, toId:notif.fromId, status:"approved", date:today }
+    ]);
+  };
+
+  const reject = (notif) => {
+    const today = new Date().toLocaleDateString("ar-SA");
+    setNotifications(prev=>[
+      ...prev.filter(n=>n.id!==notif.id),
+      { id:Date.now(), type:"response", toolName:notif.toolName, toolImg:notif.toolImg,
+        from:user.name, fromId:user.id, toId:notif.fromId, status:"rejected", date:today }
+    ]);
+  };
+
+  const clearOld = () => {
+    setNotifications(prev=>prev.filter(n=>n.status==="pending"));
+    setConfirmClear(false);
+  };
+
+  const hasOld = notifications.some(n=>n.status!=="pending");
+  const isEmpty = incoming.length===0 && sent.length===0 && responses.length===0 && (!overdueTools||overdueTools.length===0) && (!upcomingReminders||upcomingReminders.length===0);
+
+  return (
+    <div style={{ padding:"1.2rem", paddingBottom:"5rem" }}>
+      {confirmClear && <ConfirmDialog message="هل تريد مسح الإشعارات المنتهية؟ ستبقى الطلبات المعلقة." onConfirm={clearOld} onCancel={()=>setConfirmClear(false)}/>}
+
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1.2rem" }}>
+        <div style={{ fontSize:"1rem", fontWeight:800, color:"#0f172a" }}>🔔 الإشعارات</div>
+        {hasOld && (
+          <button onClick={()=>setConfirmClear(true)} style={{ background:"#f3f4f6", border:"none", borderRadius:"8px", padding:"0.3rem 0.8rem", fontSize:"0.73rem", color:"#6b7280", cursor:"pointer", fontWeight:600, fontFamily:"Tajawal,sans-serif" }}>🗑️ مسح المنتهية</button>
+        )}
+      </div>
+
+      {isEmpty && (
+        <div style={{ textAlign:"center", padding:"4rem 1rem", color:"#9ca3af" }}>
+          <div style={{ fontSize:"3.5rem", marginBottom:"0.8rem" }}>🔔</div>
+          <div style={{ fontWeight:600, marginBottom:"4px" }}>لا توجد إشعارات</div>
+          <div style={{ fontSize:"0.8rem" }}>ستظهر هنا طلبات الوسائل والردود عليها</div>
+        </div>
+      )}
+
+      {/* ── تذكير يوم قبل الموعد ── */}
+      {upcomingReminders && upcomingReminders.length>0 && (
+        <div style={{ marginBottom:"1.2rem" }}>
+          <div style={{ fontSize:"0.8rem", fontWeight:700, color:"#f59e0b", marginBottom:"0.7rem", display:"flex", alignItems:"center", gap:"0.4rem" }}>
+            <span style={{ background:"#f59e0b", color:"#fff", borderRadius:"50%", width:18, height:18, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:"0.65rem" }}>{upcomingReminders.length}</span>
+            تذكير — موعد تسليم غداً!
+          </div>
+          {upcomingReminders.map(n=>(
+            <div key={n.id} style={{ background:"#fffbeb", border:"1.5px solid #f59e0b66", borderRadius:"14px", padding:"0.9rem", marginBottom:"0.7rem", display:"flex", gap:"0.8rem", alignItems:"center" }}>
+              <div style={{ fontSize:"1.8rem" }}>{n.toolImg}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#92400e" }}>⏰ {n.toolName}</div>
+                <div style={{ fontSize:"0.75rem", color:"#78350f" }}>المستعير: {n.borrowerName}</div>
+                <div style={{ fontSize:"0.72rem", color:"#f59e0b", fontWeight:700 }}>موعد التسليم غداً: {n.dueDate}</div>
+              </div>
+              <button onClick={()=>setNotifications(prev=>prev.map(x=>x.id===n.id?{...x,status:"dismissed"}:x))}
+                style={{ background:"#fef3c7", border:"1px solid #f59e0b44", borderRadius:"8px", padding:"0.3rem 0.6rem", color:"#92400e", fontSize:"0.7rem", cursor:"pointer", fontWeight:700, fontFamily:"Tajawal,sans-serif", flexShrink:0 }}>تم ✓</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── تنبيه الوسائل المتأخرة ── */}
+      {overdueTools && overdueTools.length>0 && (
+        <div style={{ marginBottom:"1.2rem" }}>
+          <div style={{ fontSize:"0.8rem", fontWeight:700, color:"#ef4444", marginBottom:"0.7rem", display:"flex", alignItems:"center", gap:"0.4rem" }}>
+            <span style={{ background:"#ef4444", color:"#fff", borderRadius:"50%", width:18, height:18, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:"0.65rem" }}>{overdueTools.length}</span>
+            وسائل تجاوزت موعد التسليم!
+          </div>
+          {overdueTools.map(t=>(
+            <div key={t.id} style={{ background:"#fef2f2", border:"1.5px solid #fecaca", borderRadius:"14px", padding:"0.9rem", marginBottom:"0.7rem", display:"flex", gap:"0.8rem", alignItems:"center" }}>
+              <div style={{ fontSize:"1.8rem" }}>{t.img}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#991b1b" }}>{t.name}</div>
+                <div style={{ fontSize:"0.75rem", color:"#6b7280" }}>مستعارة بواسطة: {t.borrowedBy||"غير محدد"}</div>
+                <div style={{ fontSize:"0.72rem", color:"#ef4444", fontWeight:700 }}>⏰ موعد التسليم: {t.dueDate}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {incoming.length>0 && (
+        <div style={{ marginBottom:"1.2rem" }}>
+          <div style={{ fontSize:"0.8rem", fontWeight:700, color:"#f59e0b", marginBottom:"0.7rem", display:"flex", alignItems:"center", gap:"0.4rem" }}>
+            <span style={{ background:"#f59e0b", color:"#fff", borderRadius:"50%", width:18, height:18, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:"0.65rem" }}>{incoming.length}</span>
+            طلبات تحتاج ردك
+          </div>
+          {incoming.map(n=>(
+            <div key={n.id} style={{ background:"#fff", border:"1.5px solid #f59e0b44", borderRadius:"16px", padding:"1rem", marginBottom:"0.8rem", boxShadow:"0 2px 12px rgba(0,0,0,0.05)" }}>
+              <div style={{ display:"flex", gap:"0.8rem", alignItems:"flex-start", marginBottom:"0.8rem" }}>
+                <div style={{ fontSize:"2rem", flexShrink:0 }}>{n.toolImg}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#1f2937" }}>{n.from} {n.fromRole==="parent"&&<span style={{ background:"#dcfce7", color:"#065f46", borderRadius:"6px", padding:"1px 6px", fontSize:"0.65rem", fontWeight:700 }}>ولي أمر</span>}</div>
+                  <div style={{ fontSize:"0.78rem", color:"#6b7280", marginTop:"2px" }}>يطلب: <b style={{ color:"#0f172a" }}>{n.toolName}</b></div>
+                  {n.note && <div style={{ fontSize:"0.75rem", color:"#9ca3af", marginTop:"4px", background:"#f9fafb", borderRadius:"8px", padding:"6px 8px" }}>"{n.note}"</div>}
+                  <div style={{ fontSize:"0.68rem", color:"#d1d5db", marginTop:"4px" }}>{n.date}</div>
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.6rem" }}>
+                <button onClick={()=>approve(n)} style={{ background:"linear-gradient(135deg,#10b981,#059669)", border:"none", borderRadius:"10px", padding:"0.6rem", color:"#fff", fontWeight:700, fontSize:"0.82rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>✅ موافقة</button>
+                <button onClick={()=>reject(n)} style={{ background:"#fef2f2", border:"1.5px solid #fecaca", borderRadius:"10px", padding:"0.6rem", color:"#ef4444", fontWeight:700, fontSize:"0.82rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>❌ رفض</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {responses.length>0 && (
+        <div style={{ marginBottom:"1.2rem" }}>
+          <div style={{ fontSize:"0.8rem", fontWeight:700, color:"#6366f1", marginBottom:"0.7rem" }}>ردود على طلباتك</div>
+          {responses.map(n=>(
+            <div key={n.id} style={{ background:"#fff", border:`1.5px solid ${n.status==="approved"?"#10b98144":"#ef444444"}`, borderRadius:"14px", padding:"0.9rem", marginBottom:"0.7rem", display:"flex", gap:"0.8rem", alignItems:"center" }}>
+              <div style={{ fontSize:"1.8rem" }}>{n.toolImg}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:"0.85rem", fontWeight:700, color:n.status==="approved"?"#065f46":"#991b1b" }}>
+                  {n.status==="approved"?"✅ تمت الموافقة على طلبك":"❌ تم رفض طلبك"}
+                </div>
+                <div style={{ fontSize:"0.75rem", color:"#6b7280" }}>{n.toolName} • {n.from}</div>
+                <div style={{ fontSize:"0.68rem", color:"#d1d5db" }}>{n.date}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {sent.length>0 && (
+        <div>
+          <div style={{ fontSize:"0.8rem", fontWeight:700, color:"#9ca3af", marginBottom:"0.7rem" }}>طلباتك المرسلة</div>
+          {sent.map(n=>{
+            const sc = n.status==="approved"?{c:"#10b981",bg:"#ecfdf5",label:"تمت الموافقة"}:n.status==="rejected"?{c:"#ef4444",bg:"#fef2f2",label:"مرفوض"}:{c:"#f59e0b",bg:"#fffbeb",label:"قيد الانتظار"};
+            return (
+              <div key={n.id} style={{ background:"#fff", border:"1.5px solid #f3f4f6", borderRadius:"14px", padding:"0.9rem", marginBottom:"0.7rem", display:"flex", gap:"0.8rem", alignItems:"center" }}>
+                <div style={{ fontSize:"1.8rem" }}>{n.toolImg}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:"0.85rem", fontWeight:600, color:"#1f2937" }}>{n.toolName}</div>
+                  <div style={{ fontSize:"0.68rem", color:"#9ca3af" }}>{n.date}</div>
+                </div>
+                <span style={{ background:sc.bg, color:sc.c, borderRadius:"100px", padding:"3px 10px", fontSize:"0.68rem", fontWeight:700, flexShrink:0 }}>{sc.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════ STATS ═══════════════════ */
+function StatsScreen({ tools }) {
+  const byDept  = DEPTS.map(d=>({...d,count:tools.filter(t=>t.dept===d.id).length,usage:tools.filter(t=>t.dept===d.id).reduce((a,t)=>a+t.usageCount,0)}));
+  const byStatus= Object.entries(STATUS).map(([k,s])=>({...s,key:k,count:tools.filter(t=>t.status===k).length}));
+  const top     = [...tools].sort((a,b)=>b.usageCount-a.usageCount).slice(0,5);
+  const avgRating = tools.length>0?(tools.reduce((a,t)=>a+t.rating,0)/tools.length).toFixed(1):"0";
+
+  const exportReport = () => {
+    const lines = [
+      "تقرير بنك الوسائل التعليمية",
+      "=".repeat(40),
+      `تاريخ التقرير: ${new Date().toLocaleDateString("ar-SA")}`,
+      "",
+      `إجمالي الوسائل: ${tools.length}`,
+      `إجمالي الاستخدامات: ${tools.reduce((a,t)=>a+t.usageCount,0)}`,
+      `متوسط التقييم: ${avgRating}`,
+      `متاحة الآن: ${tools.filter(t=>t.status==="available").length}`,
+      "",
+      "نشاط الأقسام:",
+      ...byDept.map(d=>`  ${d.name}: ${d.count} وسيلة - ${d.usage} استخدام`),
+      "",
+      "توزيع الحالات:",
+      ...byStatus.map(s=>`  ${s.label}: ${s.count}`),
+      "",
+      "أكثر الوسائل استخداماً:",
+      ...top.map((t,i)=>`  ${i+1}. ${t.name} - ${t.usageCount} استخدام`),
+      "",
+      "قائمة الوسائل الكاملة:",
+      ...tools.map(t=>`  - ${t.name} | ${DEPTS.find(d=>d.id===t.dept)?.name||""} | ${STATUS[t.status]?.label||""} | ${t.usageCount} استخدام`),
+    ];
+    const blob = new Blob([lines.join("\n")], {type:"text/plain;charset=utf-8"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `تقرير_بنك_الوسائل_${new Date().toLocaleDateString("ar").replace(/\//g,"-")}.txt`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ padding:"1.2rem", paddingBottom:"5rem" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1.2rem" }}>
+        <div style={{ fontSize:"1rem", fontWeight:800, color:"#0f172a" }}>📊 إحصائيات البنك</div>
+        <button onClick={exportReport} style={{ background:"linear-gradient(135deg,#6366f1,#4f46e5)", border:"none", borderRadius:"10px", padding:"0.4rem 0.9rem", color:"#fff", fontSize:"0.75rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>📥 تصدير التقرير</button>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.7rem", marginBottom:"1.2rem" }}>
+        {[{label:"إجمالي الوسائل",val:tools.length,color:"#6366f1",icon:"📦"},{label:"إجمالي الاستخدامات",val:tools.reduce((a,t)=>a+t.usageCount,0),color:"#10b981",icon:"📈"},{label:"متوسط التقييم",val:avgRating+" ⭐",color:"#f59e0b",icon:"⭐"},{label:"متاحة الآن",val:tools.filter(t=>t.status==="available").length,color:"#3b82f6",icon:"🟢"}].map(s=>(
+          <div key={s.label} style={{ background:"#fff", borderRadius:"14px", padding:"1rem", border:"1px solid #f3f4f6", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize:"1.5rem", marginBottom:"4px" }}>{s.icon}</div>
+            <div style={{ fontSize:"1.3rem", fontWeight:900, color:s.color }}>{s.val}</div>
+            <div style={{ fontSize:"0.68rem", color:"#9ca3af" }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ background:"#fff", borderRadius:"16px", padding:"1.1rem", marginBottom:"1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+        <div style={{ fontSize:"0.85rem", fontWeight:700, marginBottom:"0.8rem" }}>نشاط الأقسام</div>
+        {byDept.map(d=>(
+          <div key={d.id} style={{ marginBottom:"0.8rem" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"4px" }}>
+              <span style={{ fontSize:"0.8rem", color:"#374151" }}>{d.icon} {d.name}</span>
+              <span style={{ fontSize:"0.75rem", color:"#9ca3af" }}>{d.count} وسيلة • {d.usage} استخدام</span>
+            </div>
+            <div style={{ height:6, background:"#f3f4f6", borderRadius:"3px", overflow:"hidden" }}>
+              <div style={{ height:"100%", background:d.color, borderRadius:"3px", width:`${Math.min(100,d.usage/1.5)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ background:"#fff", borderRadius:"16px", padding:"1.1rem", marginBottom:"1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+        <div style={{ fontSize:"0.85rem", fontWeight:700, marginBottom:"0.8rem" }}>توزيع الحالات</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.6rem" }}>
+          {byStatus.map(s=><div key={s.key} style={{ background:s.bg, borderRadius:"10px", padding:"0.7rem", border:`1px solid ${s.color}33` }}><div style={{ fontSize:"1.1rem", fontWeight:900, color:s.color }}>{s.count}</div><div style={{ fontSize:"0.7rem", color:s.color, opacity:0.8 }}>{s.label}</div></div>)}
+        </div>
+      </div>
+      <div style={{ background:"#fff", borderRadius:"16px", padding:"1.1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+        <div style={{ fontSize:"0.85rem", fontWeight:700, marginBottom:"0.8rem" }}>🏆 المتصدرون</div>
+        {top.map((t,i)=>(
+          <div key={t.id} style={{ display:"flex", alignItems:"center", gap:"0.7rem", padding:"0.5rem 0", borderBottom:i<4?"1px solid #f3f4f6":"none" }}>
+            <div style={{ width:24, height:24, borderRadius:"6px", background:["#ffd700","#c0c0c0","#cd7f32","#f3f4f6","#f3f4f6"][i], display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.7rem", fontWeight:700, color:i<3?"#fff":"#9ca3af" }}>{i+1}</div>
+            <span style={{ fontSize:"1.1rem" }}>{t.img}</span>
+            <span style={{ flex:1, fontSize:"0.82rem", fontWeight:600 }}>{t.name}</span>
+            <span style={{ fontSize:"0.75rem", color:"#10b981", fontWeight:700 }}>{t.usageCount}×</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════ PROFILE ═══════════════════ */
+function ProfileScreen({ user, setUser, users, setUsers, onLogout }) {
+  const roleLabel = { admin:"إدارة", teacher:"معلم", parent:"ولي أمر" };
+  const roleColor = { admin:"#ef4444", teacher:"#6366f1", parent:"#10b981" };
+  const [editing,  setEditing]  = useState(false);
+  const [editName, setEditName] = useState(user.name);
+  const [editDept, setEditDept] = useState(user.dept);
+  const [photo,    setPhoto]    = useState(user.photo||null);
+  const [oldPass,  setOldPass]  = useState("");
+  const [newPass,  setNewPass]  = useState("");
+  const [newPass2, setNewPass2] = useState("");
+  const [passErr,  setPassErr]  = useState("");
+  const [passDone, setPassDone] = useState(false);
+  const [infoSaved,setInfoSaved]= useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
+
+  const saveInfo = () => {
+    if (!editName.trim()) return;
+    const initials = editName.trim().split(" ").map(w=>w[0]).join("").slice(0,2);
+    const updated  = {...user, name:editName.trim(), dept:editDept, avatar:initials, photo};
+    const updatedUsers = users.map(u=>u.id===user.id?updated:u);
+    setUsers(updatedUsers);
+    setUser(updated);
+    if (window.storage && window.storage.set) {
+      window.storage.set("app:users", JSON.stringify(updatedUsers)).catch(()=>{});
+    }
+    setEditing(false);
+    setInfoSaved(true);
+    setTimeout(()=>setInfoSaved(false),2500);
+  };
+
+  const handlePhotoChange = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;
+      setPhoto(dataUrl);
+      const updated = {...user, photo:dataUrl};
+      const updatedUsers = users.map(u=>u.id===user.id?updated:u);
+      setUsers(updatedUsers);
+      setUser(updated);
+      if (window.storage && window.storage.set) {
+        window.storage.set("app:users", JSON.stringify(updatedUsers)).catch(()=>{});
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const changePass = () => {
+    setPassErr("");
+    if (oldPass!==user.password) return setPassErr("كلمة المرور الحالية غير صحيحة");
+    if (newPass.length<4)        return setPassErr("كلمة المرور الجديدة ٤ أحرف على الأقل");
+    if (newPass!==newPass2)      return setPassErr("كلمتا المرور الجديدتان غير متطابقتين");
+    const updated = {...user, password:newPass};
+    const updatedUsers = users.map(u=>u.id===user.id?updated:u);
+    setUsers(updatedUsers);
+    setUser(updated);
+    if (window.storage && window.storage.set) {
+      window.storage.set("app:users", JSON.stringify(updatedUsers)).catch(()=>{});
+    }
+    setOldPass(""); setNewPass(""); setNewPass2("");
+    setPassDone(true);
+    setTimeout(()=>setPassDone(false),3000);
+  };
+
+  const card = (children, mb="1rem") => (
+    <div style={{ background:"#fff", borderRadius:"16px", padding:"1.1rem", marginBottom:mb, boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>{children}</div>
+  );
+
+  return (
+    <div style={{ padding:"1.2rem", paddingBottom:"5rem" }}>
+      {confirmLogout && <ConfirmDialog message="هل تريد تسجيل الخروج؟" onConfirm={onLogout} onCancel={()=>setConfirmLogout(false)}/>}
+
+      <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius:"20px", padding:"2rem 1.5rem", textAlign:"center", marginBottom:"1.2rem" }}>
+        <div style={{ position:"relative", width:80, height:80, margin:"0 auto 0.8rem" }}>
+          <Av initials={user.avatar} photo={user.photo} color="#6366f1" size={80}/>
+          <label htmlFor="photo-upload" style={{ position:"absolute", bottom:0, right:0, background:"#6366f1", border:"2px solid #fff", borderRadius:"50%", width:26, height:26, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:"0.75rem" }}>📷</label>
+          <input id="photo-upload" type="file" accept="image/*" onChange={handlePhotoChange} style={{ display:"none" }}/>
+        </div>
+        <div style={{ color:"#fff", fontSize:"1.2rem", fontWeight:800 }}>{user.name}</div>
+        <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.8rem", marginBottom:"0.8rem" }}>{user.dept}</div>
+        <span style={{ background:roleColor[user.role]+"33", color:roleColor[user.role], border:`1px solid ${roleColor[user.role]}66`, borderRadius:"100px", padding:"4px 14px", fontSize:"0.78rem", fontWeight:700 }}>{roleLabel[user.role]}</span>
+      </div>
+
+      {card(
+        <>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.9rem" }}>
+            <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#0f172a" }}>✏️ بيانات الحساب</div>
+            <button onClick={()=>{setEditing(!editing);setInfoSaved(false);}} style={{ background:editing?"#f3f4f6":"#eef2ff", color:editing?"#6b7280":"#6366f1", border:"none", borderRadius:"8px", padding:"0.3rem 0.8rem", fontSize:"0.75rem", cursor:"pointer", fontWeight:700, fontFamily:"Tajawal,sans-serif" }}>
+              {editing?"إلغاء":"تعديل"}
+            </button>
+          </div>
+          {!editing ? (
+            <>
+              {[{label:"الاسم الكامل",val:user.name},{label:"اسم المستخدم",val:user.username},{label:"القسم",val:user.dept}].map(f=>(
+                <div key={f.label} style={{ padding:"0.5rem 0", borderBottom:"1px solid #f9fafb" }}>
+                  <div style={{ fontSize:"0.68rem", color:"#9ca3af", marginBottom:"2px" }}>{f.label}</div>
+                  <div style={{ fontSize:"0.88rem", color:"#1f2937", fontWeight:500 }}>{f.val}</div>
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <div style={{ marginBottom:"0.7rem" }}><label style={lLabel}>الاسم الكامل</label><input value={editName} onChange={e=>setEditName(e.target.value)} style={lightInput} /></div>
+              {user.role==="teacher" && (
+                <div style={{ marginBottom:"0.7rem" }}><label style={lLabel}>القسم</label>
+                  <select value={editDept} onChange={e=>setEditDept(e.target.value)} style={{...lightInput,cursor:"pointer"}}>
+                    {DEPTS.map(d=><option key={d.id} value={d.name}>{d.icon} {d.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <button onClick={saveInfo} style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#4f46e5)", border:"none", borderRadius:"12px", padding:"0.75rem", color:"#fff", fontSize:"0.9rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>حفظ التغييرات</button>
+            </>
+          )}
+          {infoSaved && <div style={{ textAlign:"center", color:"#10b981", fontSize:"0.8rem", fontWeight:700, marginTop:"0.6rem" }}>✅ تم الحفظ بنجاح</div>}
+        </>
+      )}
+
+      {card(
+        <>
+          <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#0f172a", marginBottom:"0.9rem" }}>🔑 تغيير كلمة المرور</div>
+          <div style={{ marginBottom:"0.7rem" }}><label style={lLabel}>كلمة المرور الحالية</label><input type="password" value={oldPass} onChange={e=>{setOldPass(e.target.value);setPassErr("");}} placeholder="••••" style={lightInput} /></div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.6rem", marginBottom:"0.7rem" }}>
+            <div><label style={lLabel}>كلمة المرور الجديدة</label><input type="password" value={newPass} onChange={e=>{setNewPass(e.target.value);setPassErr("");}} placeholder="••••" style={lightInput} /></div>
+            <div><label style={lLabel}>تأكيد كلمة المرور</label><input type="password" value={newPass2} onChange={e=>{setNewPass2(e.target.value);setPassErr("");}} placeholder="••••" style={lightInput} /></div>
+          </div>
+          {passErr && <p style={{ color:"#ef4444", fontSize:"0.75rem", marginBottom:"0.6rem", textAlign:"center" }}>{passErr}</p>}
+          {passDone && <p style={{ color:"#10b981", fontSize:"0.78rem", marginBottom:"0.6rem", textAlign:"center", fontWeight:700 }}>✅ تم تغيير كلمة المرور بنجاح</p>}
+          <button onClick={changePass} style={{ width:"100%", background:"#0f172a", border:"none", borderRadius:"12px", padding:"0.75rem", color:"#fff", fontSize:"0.9rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>تحديث كلمة المرور</button>
+        </>
+      )}
+
+      {/* BUG FIX: logout مع تأكيد */}
+      <button onClick={()=>setConfirmLogout(true)} style={{ width:"100%", background:"#fef2f2", color:"#ef4444", border:"1.5px solid #fecaca", borderRadius:"14px", padding:"0.85rem", fontSize:"1rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>
+        🚪 تسجيل الخروج
+      </button>
+    </div>
+  );
+}
+
+/* ═══════════════════ ADMIN USERS ═══════════════════ */
+function AdminUsersScreen({ users, setUsers, currentUser, allTags, setAllTags }) {
+  const [search, setSearch] = useState("");
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [activeTab, setActiveTab] = useState("users"); // "users" | "tags"
+  const [newTag, setNewTag] = useState("");
+  const [editingTag, setEditingTag] = useState(null); // { idx, val }
+  const [tagErr, setTagErr] = useState("");
+  const [tagSaved, setTagSaved] = useState(false);
+  const roleLabel = { admin:"إدارة", teacher:"معلم", parent:"ولي أمر" };
+  const roleColor = { admin:"#ef4444", teacher:"#6366f1", parent:"#10b981" };
+
+  const filtered = users.filter(u=>
+    u.name.includes(search) || u.username.includes(search) || (u.dept||"").includes(search)
+  );
+
+  const deleteUser = (u) => {
+    const updated = users.filter(x=>x.id!==u.id);
+    setUsers(updated);
+    setConfirmDel(null);
+  };
+
+  const tags = allTags || INIT_TAGS;
+
+  const addTag = () => {
+    const t = newTag.trim();
+    if (!t) return setTagErr("اكتب اسم التاگ أولاً");
+    if (tags.includes(t)) return setTagErr("التاگ موجود بالفعل");
+    const updated = [...tags, t];
+    setAllTags(updated);
+    setNewTag(""); setTagErr("");
+    flashSaved();
+  };
+
+  const deleteTag = (idx) => {
+    if (tags[idx]==="الكل") return setTagErr("لا يمكن حذف تاگ 'الكل'");
+    const updated = tags.filter((_,i)=>i!==idx);
+    setAllTags(updated);
+    flashSaved();
+  };
+
+  const saveEdit = () => {
+    if (!editingTag) return;
+    const t = editingTag.val.trim();
+    if (!t) return setTagErr("اسم التاگ لا يكون فارغاً");
+    if (tags.includes(t) && tags.indexOf(t)!==editingTag.idx) return setTagErr("التاگ موجود بالفعل");
+    const updated = tags.map((tg,i)=>i===editingTag.idx?t:tg);
+    setAllTags(updated);
+    setEditingTag(null); setTagErr("");
+    flashSaved();
+  };
+
+  const flashSaved = () => { setTagSaved(true); setTimeout(()=>setTagSaved(false),2000); };
+
+  return (
+    <div style={{ paddingBottom:"5rem" }}>
+      {confirmDel && <ConfirmDialog message={`هل تريد حذف حساب "${confirmDel.name}"؟`} onConfirm={()=>deleteUser(confirmDel)} onCancel={()=>setConfirmDel(null)}/>}
+
+      {/* Tabs */}
+      <div style={{ display:"flex", background:"#f3f4f6", margin:"1.2rem", borderRadius:"14px", padding:"4px" }}>
+        {[{k:"users",label:"👥 المستخدمين"},{k:"tags",label:"🏷️ التاگات"}].map(t=>(
+          <button key={t.k} onClick={()=>{setActiveTab(t.k);setTagErr("");setEditingTag(null);}}
+            style={{ flex:1, padding:"0.55rem", border:"none", borderRadius:"10px", cursor:"pointer", fontSize:"0.82rem", fontWeight:700,
+              background:activeTab===t.k?"#fff":"transparent", color:activeTab===t.k?"#0f172a":"#9ca3af",
+              boxShadow:activeTab===t.k?"0 1px 6px rgba(0,0,0,0.1)":"none", fontFamily:"Tajawal,sans-serif" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── تبويب المستخدمين ─── */}
+      {activeTab==="users" && (
+        <div style={{ padding:"0 1.2rem" }}>
+          <div style={{ fontSize:"1rem", fontWeight:800, color:"#0f172a", marginBottom:"1rem" }}>👥 إدارة المستخدمين</div>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ابحث بالاسم أو القسم..."
+            style={{ width:"100%", background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"0.7rem 1rem", color:"#1f2937", fontSize:"0.88rem", outline:"none", fontFamily:"Tajawal,sans-serif", marginBottom:"1rem" }}/>
+          <div style={{ display:"grid", gap:"0.7rem" }}>
+            {filtered.map(u=>(
+              <div key={u.id} style={{ background:"#fff", borderRadius:"14px", padding:"0.9rem 1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", display:"flex", alignItems:"center", gap:"0.8rem" }}>
+                <Av initials={u.avatar} photo={u.photo} color={roleColor[u.role]||"#6366f1"} size={40}/>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:"0.88rem", fontWeight:700, color:"#1f2937" }}>{u.name}</div>
+                  <div style={{ fontSize:"0.72rem", color:"#9ca3af" }}>{u.username} • {u.dept}</div>
+                  <span style={{ background:roleColor[u.role]+"22", color:roleColor[u.role], borderRadius:"100px", padding:"1px 8px", fontSize:"0.65rem", fontWeight:700 }}>{roleLabel[u.role]}</span>
+                </div>
+                {u.id!==currentUser.id && (
+                  <button onClick={()=>setConfirmDel(u)} style={{ background:"#fef2f2", border:"1.5px solid #fecaca", borderRadius:"8px", padding:"0.3rem 0.6rem", color:"#ef4444", fontSize:"0.75rem", cursor:"pointer", fontWeight:700, fontFamily:"Tajawal,sans-serif" }}>🗑️ حذف</button>
+                )}
+              </div>
+            ))}
+            {filtered.length===0 && <div style={{ textAlign:"center", padding:"2rem", color:"#9ca3af" }}>لا توجد نتائج</div>}
+          </div>
+          <div style={{ marginTop:"1rem", background:"#f3f4f6", borderRadius:"12px", padding:"0.75rem 1rem", textAlign:"center" }}>
+            <span style={{ fontSize:"0.78rem", color:"#6b7280" }}>إجمالي المستخدمين: <b style={{ color:"#0f172a" }}>{users.length}</b></span>
+          </div>
+        </div>
+      )}
+
+      {/* ─── تبويب التاگات ─── */}
+      {activeTab==="tags" && (
+        <div style={{ padding:"0 1.2rem" }}>
+          <div style={{ fontSize:"1rem", fontWeight:800, color:"#0f172a", marginBottom:"0.3rem" }}>🏷️ إدارة تاگات الفلتر</div>
+          <div style={{ fontSize:"0.75rem", color:"#9ca3af", marginBottom:"1rem" }}>هذه التاگات تظهر في فلتر شاشة الوسائل</div>
+
+          {/* إضافة تاگ جديد */}
+          <div style={{ background:"#fff", borderRadius:"16px", padding:"1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.05)", marginBottom:"1rem" }}>
+            <div style={{ fontSize:"0.82rem", fontWeight:700, color:"#0f172a", marginBottom:"0.7rem" }}>➕ إضافة تاگ جديد</div>
+            <div style={{ display:"flex", gap:"0.5rem" }}>
+              <input value={newTag} onChange={e=>{setNewTag(e.target.value);setTagErr("");}}
+                onKeyDown={e=>e.key==="Enter"&&addTag()}
+                placeholder="اسم التاگ الجديد..."
+                style={{ flex:1, background:"#f9fafb", border:"1px solid #e5e7eb", borderRadius:"10px", padding:"0.65rem 1rem", color:"#1f2937", fontSize:"0.85rem", outline:"none", fontFamily:"Tajawal,sans-serif" }}/>
+              <button onClick={addTag}
+                style={{ background:"linear-gradient(135deg,#6366f1,#4f46e5)", border:"none", borderRadius:"10px", padding:"0.65rem 1rem", color:"#fff", fontSize:"0.85rem", fontWeight:700, cursor:"pointer", fontFamily:"Tajawal,sans-serif", flexShrink:0 }}>إضافة</button>
+            </div>
+            {tagErr && <div style={{ color:"#ef4444", fontSize:"0.75rem", marginTop:"0.5rem" }}>⚠️ {tagErr}</div>}
+            {tagSaved && <div style={{ color:"#10b981", fontSize:"0.75rem", marginTop:"0.5rem", fontWeight:700 }}>✅ تم الحفظ</div>}
+          </div>
+
+          {/* قائمة التاگات */}
+          <div style={{ background:"#fff", borderRadius:"16px", padding:"1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.05)" }}>
+            <div style={{ fontSize:"0.82rem", fontWeight:700, color:"#0f172a", marginBottom:"0.8rem" }}>📋 التاگات الحالية ({tags.length})</div>
+            <div style={{ display:"grid", gap:"0.5rem" }}>
+              {tags.map((tg,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:"0.5rem", background:"#f9fafb", borderRadius:"10px", padding:"0.55rem 0.8rem", border:"1px solid #f3f4f6" }}>
+                  {editingTag && editingTag.idx===i ? (
+                    <>
+                      <input value={editingTag.val} onChange={e=>setEditingTag({...editingTag,val:e.target.value})}
+                        onKeyDown={e=>{if(e.key==="Enter")saveEdit();if(e.key==="Escape")setEditingTag(null);}}
+                        autoFocus
+                        style={{ flex:1, background:"#fff", border:"1.5px solid #6366f1", borderRadius:"7px", padding:"0.35rem 0.7rem", fontSize:"0.82rem", outline:"none", fontFamily:"Tajawal,sans-serif", color:"#1f2937" }}/>
+                      <button onClick={saveEdit} style={{ background:"#ecfdf5", border:"1px solid #10b981", borderRadius:"7px", padding:"0.3rem 0.6rem", color:"#065f46", fontSize:"0.72rem", cursor:"pointer", fontWeight:700, fontFamily:"Tajawal,sans-serif" }}>✅ حفظ</button>
+                      <button onClick={()=>{setEditingTag(null);setTagErr("");}} style={{ background:"#f3f4f6", border:"none", borderRadius:"7px", padding:"0.3rem 0.6rem", color:"#6b7280", fontSize:"0.72rem", cursor:"pointer", fontFamily:"Tajawal,sans-serif" }}>إلغاء</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex:1, fontSize:"0.85rem", fontWeight:600, color:"#1f2937" }}>{tg}</span>
+                      {tg==="الكل" ? (
+                        <span style={{ fontSize:"0.65rem", color:"#9ca3af", fontStyle:"italic" }}>ثابت</span>
+                      ) : (
+                        <>
+                          <button onClick={()=>{setEditingTag({idx:i,val:tg});setTagErr("");}}
+                            style={{ background:"#eef2ff", border:"none", borderRadius:"7px", padding:"0.3rem 0.6rem", color:"#6366f1", fontSize:"0.72rem", cursor:"pointer", fontWeight:700, fontFamily:"Tajawal,sans-serif" }}>✏️ تعديل</button>
+                          <button onClick={()=>deleteTag(i)}
+                            style={{ background:"#fef2f2", border:"none", borderRadius:"7px", padding:"0.3rem 0.6rem", color:"#ef4444", fontSize:"0.72rem", cursor:"pointer", fontWeight:700, fontFamily:"Tajawal,sans-serif" }}>🗑️ حذف</button>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* معاينة الفلتر */}
+          <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius:"16px", padding:"1rem", marginTop:"1rem" }}>
+            <div style={{ fontSize:"0.78rem", color:"rgba(255,255,255,0.5)", marginBottom:"0.6rem" }}>👁️ معاينة الفلتر</div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:"0.4rem" }}>
+              {tags.map((t,i)=>(
+                <span key={i} style={{ background:i===0?"#6366f1":"rgba(255,255,255,0.1)", color:"#fff", border:`1px solid ${i===0?"#6366f1":"rgba(255,255,255,0.2)"}`, borderRadius:"100px", padding:"0.2rem 0.7rem", fontSize:"0.68rem", fontWeight:i===0?700:400 }}>{t}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════ APP SHELL ═══════════════════ */
+function App() {
+  const [users,         setUsers]         = useState(INIT_USERS);
+  const [user,          setUser]          = useState(null);
+  const [tools,         setTools]         = useState(INIT_TOOLS);
+  const [notifications, setNotifications] = useState([]);
+  const [allTags,       setAllTags]       = useState(INIT_TAGS);
+  const [screen,        setScreen]        = useState("home");
+  const [params,        setParams]        = useState({});
+  const [loading,       setLoading]       = useState(true);
+
+  // Wait for Firebase then load data
+  useEffect(()=>{
+    const load = async () => {
+      try {
+        const savedUsers = await window.storage.get("app:users");
+        if (savedUsers) setUsers(JSON.parse(savedUsers.value));
+        const savedTools = await window.storage.get("app:tools");
+        if (savedTools) setTools(JSON.parse(savedTools.value));
+        const savedNotifs = await window.storage.get("app:notifications");
+        if (savedNotifs) setNotifications(JSON.parse(savedNotifs.value));
+        const savedTags = await window.storage.get("app:tags");
+        if (savedTags) setAllTags(JSON.parse(savedTags.value));
+        const savedUser = await window.storage.get("app:currentUser");
+        if (savedUser) setUser(JSON.parse(savedUser.value));
+      } catch(e) { /* أول مرة */ }
+      setLoading(false);
+    };
+    // Wait for Firebase module to initialize
+    const tryLoad = () => {
+      if (window.storage && window.storage.get) { load(); }
+      else { window.addEventListener("firebaseReady", load, {once:true}); }
+    };
+    tryLoad();
+  }, []);
+
+  const updateUsers = (val) => {
+    const next = typeof val==="function" ? val(users) : val;
+    setUsers(next);
+    window.storage.set("app:users", JSON.stringify(next)).catch(()=>{});
+  };
+  const updateTools = (val) => {
+    const next = typeof val==="function" ? val(tools) : val;
+    setTools(next);
+    window.storage.set("app:tools", JSON.stringify(next)).catch(()=>{});
+  };
+  const updateNotifications = (val) => {
+    const next = typeof val==="function" ? val(notifications) : val;
+    setNotifications(next);
+    window.storage.set("app:notifications", JSON.stringify(next)).catch(()=>{});
+  };
+  const updateAllTags = (val) => {
+    const next = typeof val==="function" ? val(allTags) : val;
+    setAllTags(next);
+    window.storage.set("app:tags", JSON.stringify(next)).catch(()=>{});
+  };
+  const loginUser = (u) => {
+    setUser(u); setScreen("home");
+    window.storage.set("app:currentUser", JSON.stringify(u)).catch(()=>{});
+  };
+  const logoutUser = () => {
+    setUser(null); setScreen("home");
+    window.storage.delete("app:currentUser").catch(()=>{});
+  };
+  const nav = (s,p={}) => { setScreen(s); setParams(p); };
+
+  if (loading) return (
+    <div style={{ minHeight:"100vh", background:"linear-gradient(145deg,#0f172a,#1e3a5f)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"Tajawal,sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@700;900&display=swap'); @keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <div style={{ fontSize:"3.5rem", marginBottom:"1rem" }}>📚</div>
+      <div style={{ color:"#fff", fontSize:"1.2rem", fontWeight:700, marginBottom:"1.5rem" }}>بنك الوسائل التعليمية</div>
+      <div style={{ width:36, height:36, border:"3px solid rgba(255,255,255,0.2)", borderTop:"3px solid #10b981", borderRadius:"50%", animation:"spin 0.8s linear infinite" }}/>
+      <div style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.78rem", marginTop:"1rem" }}>جارٍ تحميل البيانات...</div>
+    </div>
+  );
+
+  if (!user) return <AuthScreen users={users} setUsers={updateUsers} onLogin={loginUser}/>;
+
+  const pendingCount  = notifications.filter(n=>n.type==="request"&&n.toId===user.id&&n.status==="pending").length;
+  const responseCount = notifications.filter(n=>n.type==="response"&&n.toId===user.id).length;
+
+  // حساب الوسائل المتأخرة والتذكيرات (يوم قبل الموعد)
+  const todayISO = new Date().toISOString().split("T")[0];
+  const tomorrowISO = new Date(Date.now()+86400000).toISOString().split("T")[0];
+
+  const overdueTools = tools.filter(t=>{
+    if (t.status!=="borrowed" || !t.dueDateISO) return false;
+    return t.dueDateISO < todayISO;
+  });
+
+  // تذكيرات يوم قبل الموعد: للمعلم صاحب الوسيلة أو المستعير
+  const upcomingReminders = notifications.filter(n=>{
+    if (n.type!=="reminder" || n.status!=="pending") return false;
+    if (n.reminderDateISO !== todayISO) return false;
+    return n.toId===user.id || n.toId2===user.id;
+  });
+
+  const totalBadge = pendingCount + responseCount + overdueTools.length + upcomingReminders.length;
+
+  const tabs = [
+    { id:"home",    label:"الرئيسية", icon:"🏠" },
+    { id:"tools",   label:"الوسائل",  icon:"📦" },
+    { id:"notifs",  label:"إشعارات",  icon:"🔔", badge:totalBadge },
+    { id:"stats",   label:"إحصائيات",icon:"📊" },
+    ...(user.role==="admin" ? [{ id:"adminusers", label:"المستخدمين", icon:"👥" }] : []),
+    { id:"profile", label:"حسابي",    icon:"👤" },
+  ];
+
+  const currentTool = params.tool ? tools.find(t=>t.id===params.tool.id)||params.tool : null;
+
+  return (
+    <div style={{ maxWidth:430, margin:"0 auto", minHeight:"100vh", background:"#f8fafc", position:"relative", fontFamily:"Tajawal,sans-serif", direction:"rtl" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;}
+        ::-webkit-scrollbar{display:none;}
+        textarea,button,input,select{font-family:Tajawal,sans-serif;}
+        textarea{direction:rtl;}
+        input::placeholder{color:#9ca3af;}
+        select option{background:#fff;color:#1f2937;}
+        @keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+      `}</style>
+
+      {screen!=="detail" && (
+        <div style={{ background:"#fff", borderBottom:"1px solid #f3f4f6", padding:"0.8rem 1.2rem", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10, boxShadow:"0 1px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontSize:"0.95rem", fontWeight:800, color:"#0f172a" }}>📚 بنك الوسائل</div>
+          <div style={{ display:"flex", alignItems:"center", gap:"0.5rem" }}>
+            {totalBadge>0 && (
+              <div onClick={()=>nav("notifs")} style={{ position:"relative", cursor:"pointer" }}>
+                <span style={{ fontSize:"1.2rem" }}>🔔</span>
+                <span style={{ position:"absolute", top:-4, left:-4, background:"#ef4444", color:"#fff", borderRadius:"50%", width:16, height:16, fontSize:"0.6rem", fontWeight:900, display:"flex", alignItems:"center", justifyContent:"center" }}>{totalBadge}</span>
+              </div>
+            )}
+            <Av initials={user.avatar} photo={user.photo} size={30} color="#6366f1"/>
+          </div>
+        </div>
+      )}
+
+      <div style={{ overflowY:"auto" }}>
+        {screen==="home"       && <HomeScreen user={user} tools={tools} onNav={nav}/>}
+        {screen==="tools"      && <ToolsScreen user={user} tools={tools} initDept={params.dept} onNav={nav} allTags={allTags}/>}
+        {screen==="addtool"    && <AddToolScreen user={user} tools={tools} setTools={updateTools} onBack={()=>nav("tools")}/>}
+        {screen==="notifs"     && <NotificationsScreen user={user} notifications={notifications} setNotifications={updateNotifications} tools={tools} setTools={updateTools} overdueTools={overdueTools} upcomingReminders={upcomingReminders} todayISO={todayISO}/>}
+        {screen==="stats"      && <StatsScreen tools={tools}/>}
+        {screen==="adminusers" && <AdminUsersScreen users={users} setUsers={updateUsers} currentUser={user} allTags={allTags} setAllTags={updateAllTags}/>}
+        {screen==="profile"    && <ProfileScreen user={user} setUser={(u)=>{ setUser(u); window.storage.set("app:currentUser",JSON.stringify(u)).catch(()=>{}); }} users={users} setUsers={updateUsers} onLogout={logoutUser}/>}
+        {screen==="detail"     && currentTool && <DetailScreen user={user} tool={currentTool} tools={tools} setTools={updateTools} notifications={notifications} setNotifications={updateNotifications} onBack={()=>setScreen("tools")}/>}
+      </div>
+
+      {screen!=="detail" && (
+        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, background:"#fff", borderTop:"1px solid #f3f4f6", display:"flex", padding:"0.5rem 0 0.8rem", boxShadow:"0 -4px 20px rgba(0,0,0,0.06)", zIndex:20 }}>
+          {tabs.map(t=>(
+            <button key={t.id} onClick={()=>nav(t.id)} style={{ flex:1, background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:"2px", padding:"0.3rem 0", position:"relative", fontFamily:"Tajawal,sans-serif" }}>
+              <span style={{ fontSize:"1.1rem", filter:screen===t.id?"none":"grayscale(1) opacity(0.5)" }}>{t.icon}</span>
+              {t.badge>0 && <span style={{ position:"absolute", top:0, right:"18%", background:"#ef4444", color:"#fff", borderRadius:"50%", width:14, height:14, fontSize:"0.55rem", fontWeight:900, display:"flex", alignItems:"center", justifyContent:"center" }}>{t.badge}</span>}
+              <span style={{ fontSize:"0.6rem", color:screen===t.id?"#6366f1":"#9ca3af", fontWeight:screen===t.id?700:400 }}>{t.label}</span>
+              {screen===t.id && <div style={{ width:4, height:4, borderRadius:"50%", background:"#6366f1" }}/>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
